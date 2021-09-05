@@ -10,3 +10,6 @@ core/swf/__pycache__
 core/utils/__pycache__
 core/worker/__pycache__
 core/.txt
+
+*.pyo
+*.pyc
