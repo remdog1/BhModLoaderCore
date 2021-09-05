@@ -1,0 +1,12 @@
+.idea
+venv
+Mods
+Mods Sources
+test.py
+core/__pycache__
+core/controller/__pycache__
+core/ffdec/__pycache__
+core/swf/__pycache__
+core/utils/__pycache__
+core/worker/__pycache__
+core/.txt
