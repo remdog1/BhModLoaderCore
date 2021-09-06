@@ -56,6 +56,47 @@ if sys.platform in ["win32", "win64"]:
     del brawlhallaFolders
     del steamHomePath
 
+    if BRAWLHALLA_PATH is None:
+        import time
+        import psutil
+
+        os.system("start steam://rungameid/291550")
+
+        found = False
+        path = None
+
+        i = 0
+        while not found and i < 7:
+            time.sleep(1)
+
+            for proc in psutil.process_iter():
+                try:
+                    proc_name = proc.name()
+                except psutil.NoSuchProcess:
+                    pass
+                else:
+                    if proc_name == "Brawlhalla.exe":
+                        found = True
+                        os.system(f'taskkill /pid {proc.pid}')
+                        path = proc.cwd()
+                        break
+
+            i += 1
+
+        BRAWLHALLA_PATH = path
+
+    if BRAWLHALLA_PATH is None:
+        import win32api
+        import win32con
+        import multiprocessing
+
+        win32api.MessageBox(None, "Brawlhalla not found!", "ModLoader Core",
+                            win32con.MB_ICONERROR | win32con.MB_OK | win32con.MB_DEFBUTTON1)
+
+        if multiprocessing.parent_process() is not None:
+            os.kill(multiprocessing.parent_process().pid, 15)
+        os.kill(multiprocessing.current_process().pid, 15)
+
 elif sys.platform == "darwin":
     pass
 

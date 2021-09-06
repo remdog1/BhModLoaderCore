@@ -23,7 +23,8 @@ else:
         try:
             import win32api
             import win32con
-            win32api.MessageBox(None, str("Java not found!"), "ModLoader Core", win32con.MB_ICONERROR | win32con.MB_OK | win32con.MB_DEFBUTTON1)
+            win32api.MessageBox(None, "Java not found!", "ModLoader Core",
+                                win32con.MB_ICONERROR | win32con.MB_OK | win32con.MB_DEFBUTTON1)
         except ImportError:
             print("Java not found!")
 
