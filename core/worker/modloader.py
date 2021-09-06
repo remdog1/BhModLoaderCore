@@ -43,6 +43,7 @@ class ModLoaderClass:
                 for modSources in self.modsSources]
 
     def loadMods(self):
+        # TODO: Skip error loading mod
         modsHashes = []
         if MODS_PATH:
             modsPath = MODS_PATH[0]

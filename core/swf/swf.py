@@ -240,7 +240,6 @@ class Swf:
         # self.elementsMapByType = {}
         self.symbolClass: SymbolClass = None
         self.metaData: MetadataClass = None
-        self.showFrame: PlaceObjectTags = None
 
         if autoload:
             self.open()
@@ -323,8 +322,6 @@ class Swf:
                     self.symbolClass = SymbolClass(element)
                 elif elType == MetadataTag:
                     self.metaData = MetadataClass(element)
-                elif elType in PlaceObjectTags:
-                    self.showFrame = element
                 else:
                     elId = GetElementId(element)
 

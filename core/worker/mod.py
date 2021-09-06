@@ -287,14 +287,10 @@ class ModSource(BaseModClass):
                                 self.swfs[gameSwfName]["sprites"].append(spriteAnchor)
 
                                 spriteSwf = Swf(os.path.join(categoryPath, elementPath, "frames.swf"))
-                                if spriteSwf.showFrame is not None:
-                                    spriteId = int(GetElementId(spriteSwf.showFrame))
-                                elif len(spriteSwf.elementsList):
-                                    spriteId = GetElementId(spriteSwf.elementsList[0])
-                                else:
-                                    # TODO: Error
-                                    print("ERROR")
-                                    continue
+                                spriteId = GetElementId(
+                                    list(sorted(spriteSwf.elementsList, key=lambda x: GetElementId(x)))[-1]
+                                )
+
                                 cloneSprites = []
                                 cloneShapes = []
 
@@ -339,7 +335,6 @@ class ModSource(BaseModClass):
 
                                 if cloneSprites:
                                     modSwf.symbolClass.addTag(elementsMap[spriteId], spriteAnchor)
-                                    #print("Done.")
                                 else:
                                     #print("Error: Empty sprite")
                                     SendNotification(NotificationType.CompileModSourcesSpriteEmpty,
