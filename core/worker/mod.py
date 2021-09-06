@@ -272,7 +272,7 @@ class ModSource(BaseModClass):
                         elif category == "sprites":
                             if sprite := self.regexSpriteFile.findall(elementPath):
                                 spriteId, spriteAnchor = sprite[0]
-                                spriteId = int(spriteId)
+                                #spriteId = int(spriteId)
 
                                 #print("Import Sprite", spriteAnchor)
                                 SendNotification(NotificationType.CompileModSourcesImportSprite,
@@ -281,12 +281,20 @@ class ModSource(BaseModClass):
                                 if not spriteAnchor:
                                     #print(f"Error: Sprite {spriteId} has no anchor ")
                                     SendNotification(NotificationType.CompileModSourcesSpriteHasNoSymbolclass,
-                                                     self.hash, spriteId)
+                                                     self.hash, elementPath)
                                     continue
 
                                 self.swfs[gameSwfName]["sprites"].append(spriteAnchor)
 
                                 spriteSwf = Swf(os.path.join(categoryPath, elementPath, "frames.swf"))
+                                if spriteSwf.showFrame is not None:
+                                    spriteId = int(GetElementId(spriteSwf.showFrame))
+                                elif len(spriteSwf.elementsList):
+                                    spriteId = GetElementId(spriteSwf.elementsList[0])
+                                else:
+                                    # TODO: Error
+                                    print("ERROR")
+                                    continue
                                 cloneSprites = []
                                 cloneShapes = []
 

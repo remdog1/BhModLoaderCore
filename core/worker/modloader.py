@@ -72,7 +72,8 @@ class ModLoaderClass:
             for modSourcesFolder in os.listdir(modsSourcesPath):
                 modSourcesPath = os.path.join(modsSourcesPath, modSourcesFolder)
                 if os.path.isdir(modSourcesPath) and not modSourcesFolder.startswith("__"):
-                    self.modsSources.append(ModSource(modSourcesPath))
+                    modSource = ModSource(modSourcesPath)
+                    self.modsSources.append(modSource)
 
     def reloadModsSources(self):
         self.modsSources: List[ModSource] = []
