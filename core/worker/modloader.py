@@ -5,7 +5,8 @@ from .variables import (MODS_PATH,
                         MOD_FILE_FORMAT,
                         MODS_SOURCES_PATH,
                         MODLOADER_CACHE_PATH,
-                        MODLOADER_CACHE_MODS_FOLDER)
+                        MODLOADER_CACHE_MODS_FOLDER,
+                        CheckExists)
 from .mod import ModClass, ModSource, ModsHashSumCache
 from .config import ModloaderCoreConfig
 
@@ -44,8 +45,11 @@ class ModLoaderClass:
     def loadMods(self):
         modsHashes = []
         if MODS_PATH:
-            for modFile in os.listdir(MODS_PATH[0]):
-                modPath = os.path.join(MODS_PATH[0], modFile)
+            modsPath = MODS_PATH[0]
+            CheckExists(modsPath, True)
+
+            for modFile in os.listdir(modsPath):
+                modPath = os.path.join(modsPath, modFile)
                 if modFile.endswith(f".{MOD_FILE_FORMAT}") and os.path.isfile(modPath):
                     modClass = ModClass(modPath=modPath, modsCachePath=self.modsCachePath)
                     modsHashes.append(modClass.hash)
@@ -62,8 +66,11 @@ class ModLoaderClass:
 
     def loadModsSources(self):
         if MODS_SOURCES_PATH:
-            for modSourcesFolder in os.listdir(MODS_SOURCES_PATH[0]):
-                modSourcesPath = os.path.join(MODS_SOURCES_PATH[0], modSourcesFolder)
+            modsSourcesPath = MODS_SOURCES_PATH[0]
+            CheckExists(modsSourcesPath, True)
+
+            for modSourcesFolder in os.listdir(modsSourcesPath):
+                modSourcesPath = os.path.join(modsSourcesPath, modSourcesFolder)
                 if os.path.isdir(modSourcesPath) and not modSourcesFolder.startswith("__"):
                     self.modsSources.append(ModSource(modSourcesPath))
 

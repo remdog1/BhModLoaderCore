@@ -41,14 +41,18 @@ if not os.path.exists(MODLOADER_CACHE_PATH):
     os.mkdir(MODLOADER_CACHE_PATH)
 
 
+def CheckExists(path, makeIfNotExists=False):
+    if path and not os.path.exists(path) and makeIfNotExists:
+        os.makedirs(path)
+
+
 def SetModsPath(path):
     for v in MODS_PATH:
         MODS_PATH.remove(v)
 
     MODS_PATH.append(path)
 
-    if path and not os.path.exists(path):
-        os.makedirs(path)
+    CheckExists(path, True)
 
 
 def SetModsSourcesPath(path):
@@ -57,5 +61,5 @@ def SetModsSourcesPath(path):
 
     MODS_SOURCES_PATH.append(path)
 
-    if path and not os.path.exists(path):
-        os.makedirs(path)
+    CheckExists(path, True)
+
