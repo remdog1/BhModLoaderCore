@@ -52,14 +52,21 @@ class ModLoaderClass:
             for modFile in os.listdir(modsPath):
                 modPath = os.path.join(modsPath, modFile)
                 if modFile.endswith(f".{MOD_FILE_FORMAT}") and os.path.isfile(modPath):
-                    modClass = ModClass(modPath=modPath, modsCachePath=self.modsCachePath)
-                    modsHashes.append(modClass.hash)
-                    self.modsClasses.append(modClass)
+                    try:
+                        modClass = ModClass(modPath=modPath, modsCachePath=self.modsCachePath)
+                        modsHashes.append(modClass.hash)
+                        self.modsClasses.append(modClass)
+                    except:
+                        pass
 
         cacheHashes = ModsHashSumCache(self.modsCachePath)
         for modHash in cacheHashes.hashes.values():
             if modHash not in modsHashes:
-                self.modsClasses.append(ModClass(modsCachePath=self.modsCachePath, modHash=modHash))
+                try:
+                    modClass = ModClass(modsCachePath=self.modsCachePath, modHash=modHash)
+                    self.modsClasses.append(modClass)
+                except:
+                    pass
 
     def reloadMods(self):
         self.modsClasses = []
@@ -103,10 +110,6 @@ class ModLoaderClass:
             modSource = ModSource(path)
             self.modsSources.append(modSource)
             return modSource
-
-    def findBrawlhalla(self):
-        pass
-        # TODO: Make it
 
     def load(self):
         self.loadMods()

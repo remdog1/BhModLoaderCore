@@ -77,6 +77,18 @@ class Dispatch(BaseDispatch):
 
         return False, None
 
+    @Index(Environment.DeleteMod)
+    def deleteMod(self, hash):
+        mod = ModLoader.getModByHash(hash)
+        if mod is not None:
+            ModLoader.modsClasses.remove(mod)
+            mod.delete()
+            del mod
+            # mod.uninstall()
+            return True, hash
+
+        return False, None
+
     @Index(Environment.ReinstallMod)
     def reinstallMod(self, hash):
         mod = ModLoader.getModByHash(hash)
@@ -173,6 +185,18 @@ class Dispatch(BaseDispatch):
         modSources = ModLoader.getModSourcesByHash(hash)
         if modSources is not None:
             threading.Thread(target=modSources.compile).start()
+            return True, hash
+
+        return False, None
+
+    @Index(Environment.DeleteModSources)
+    def deleteModSources(self, hash):
+        modSources = ModLoader.getModSourcesByHash(hash)
+        if modSources is not None:
+            ModLoader.modsSources.remove(modSources)
+            modSources.delete()
+            del modSources
+            # mod.uninstall()
             return True, hash
 
         return False, None

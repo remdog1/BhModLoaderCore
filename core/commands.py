@@ -13,6 +13,7 @@ class Environment(Enum):
     InstallMod = auto()
     ForceInstallMod = auto()
     UninstallMod = auto()
+    DeleteMod = auto()
     ReinstallMod = auto()
 
     CreateMod = auto()
@@ -25,5 +26,6 @@ class Environment(Enum):
     SetModPreviews = auto()
     SaveModSource = auto()
     CompileModSources = auto()
+    DeleteModSources = auto()
 
     Notification = auto()

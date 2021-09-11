@@ -92,6 +92,9 @@ class Controller(BaseController):
     def reinstallMod(self, hash):
         self.sendEnv(Environment.ReinstallMod, hash)
 
+    def deleteMod(self, hash):
+        self.sendEnv(Environment.DeleteMod, hash)
+
     def forceInstallMod(self, hash):
         self.sendEnv(Environment.ForceInstallMod, hash)
 
@@ -124,3 +127,6 @@ class Controller(BaseController):
 
     def compileModSources(self, hash):
         self.sendEnv(Environment.CompileModSources, hash)
+
+    def deleteModSources(self, hash):
+        self.sendEnv(Environment.DeleteModSources, hash)

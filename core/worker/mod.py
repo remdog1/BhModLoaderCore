@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import threading
 from typing import List, Dict, Tuple, Union
 
@@ -380,6 +381,9 @@ class ModSource(BaseModClass):
         modSwf.close()
         del modSwf
 
+    def delete(self):
+        shutil.rmtree(self.modSourcesPath)
+
 
 class ModsHashSumCache(DataClass):
     DataVariable(METADATA_FORMAT_CACHE_MODS_HASH_SUM, 0, "formatVersion")
@@ -457,10 +461,18 @@ class ModClass(ModCache):
             self.modSwf = Swf(self.modPath, autoload=False)
             modHashSum = HashFile(self.modPath)
 
+            _cache = False
+
             if modHash := self.modsHashSumCache.getHash(modHashSum):
                 self.modCachePath = os.path.join(modsCachePath, modHash)
-                self.loadCache()
+                if os.path.exists(self.modCachePath):
+                    self.loadCache()
+                else:
+                    _cache = True
             else:
+                _cache = True
+
+            if _cache:
                 SendNotification(NotificationType.LoadingModData, modPath)
                 self.loadModData()
 
@@ -478,16 +490,20 @@ class ModClass(ModCache):
                 self.modsHashSumCache.setHash(modHashSum, self.hash)
                 self.modsHashSumCache.save()
 
-                self.loadCache(["installed"])
+                self.loadCache(ignoredVars=["installed"])
         elif modHash is not None:
             self.modFileExist = False
             self.modSwf = None
             self.modCachePath = os.path.join(modsCachePath, modHash)
-            #if modHashSum := self.modsHashSumCache.getHashSum(modHash):
+            self.hash = modHash
+            # if modHashSum := self.modsHashSumCache.getHashSum(modHash):
             #    self.modsHashSumCache.removeHash(modHashSum)
             #    self.modsHashSumCache.save()
-
-            self.loadCache(ignoredVars=["modFileExist"])
+            if os.path.exists(self.modCachePath):
+                self.loadCache(ignoredVars=["modFileExist"])
+            else:
+                self.removeCache()
+                raise Exception("Not found mods cache")
         else:
             SendNotification(NotificationType.LoadingModIsEmpty, modPath)
 
@@ -510,7 +526,7 @@ class ModClass(ModCache):
             self.modsHashSumCache.removeHash(modHashSum)
             self.modsHashSumCache.save()
 
-        os.rmdir(self.modCachePath)
+        shutil.rmtree(self.modCachePath)
 
     def loadModData(self):
         modOpen = self.modSwf.isOpen()
@@ -744,3 +760,7 @@ class ModClass(ModCache):
     def reinstall(self):
         self.uninstall()
         self.install()
+
+    def delete(self):
+        self.removeCache()
+        os.remove(self.modPath)
