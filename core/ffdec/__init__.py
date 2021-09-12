@@ -1,6 +1,7 @@
 import os
 import sys
 import jpype
+from ..utils.error import Error
 
 __all__ = []
 
@@ -21,10 +22,7 @@ else:
         jvmpath = ""
 
         try:
-            import win32api
-            import win32con
-            win32api.MessageBox(None, "Java not found!", "ModLoader Core",
-                                win32con.MB_ICONERROR | win32con.MB_OK | win32con.MB_DEFBUTTON1)
+            Error("ModLoader Core", "Java not found!")
         except ImportError:
             print("Java not found!")
 

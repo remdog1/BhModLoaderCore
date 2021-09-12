@@ -54,8 +54,10 @@ class ModLoaderClass:
                 if modFile.endswith(f".{MOD_FILE_FORMAT}") and os.path.isfile(modPath):
                     try:
                         modClass = ModClass(modPath=modPath, modsCachePath=self.modsCachePath)
-                        modsHashes.append(modClass.hash)
-                        self.modsClasses.append(modClass)
+                        # Not load duplicate
+                        if modClass.hash not in modsHashes:
+                            modsHashes.append(modClass.hash)
+                            self.modsClasses.append(modClass)
                     except:
                         pass
 
@@ -73,6 +75,7 @@ class ModLoaderClass:
         self.loadMods()
 
     def loadModsSources(self):
+        modsSourcesHashes = []
         if MODS_SOURCES_PATH:
             modsSourcesPath = MODS_SOURCES_PATH[0]
             CheckExists(modsSourcesPath, True)
@@ -81,7 +84,10 @@ class ModLoaderClass:
                 modSourcesPath = os.path.join(modsSourcesPath, modSourcesFolder)
                 if os.path.isdir(modSourcesPath) and not modSourcesFolder.startswith("__"):
                     modSource = ModSource(modSourcesPath)
-                    self.modsSources.append(modSource)
+                    # Not load duplicate
+                    if modSource.hash not in modsSourcesHashes:
+                        modsSourcesHashes.append(modSource.hash)
+                        self.modsSources.append(modSource)
 
     def reloadModsSources(self):
         self.modsSources: List[ModSource] = []
