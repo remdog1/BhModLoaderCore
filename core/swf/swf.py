@@ -352,7 +352,10 @@ class Swf:
         if self._swf is not None:
             self._javaSwfs.pop(self._swf)
             self._swf.clearTagSwfs()
-            self._swf.clearAllCache()
+            try:
+                self._swf.clearAllCache()
+            except:
+                pass
             self._swf = None
             self.elementsList = []
             # self.elementsMap = {}

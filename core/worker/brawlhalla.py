@@ -5,7 +5,6 @@ import sys
 from .config import ModloaderCoreConfig
 
 from ..utils.hash import HashFile
-from ..utils.error import Error
 from ..ffdec.classes import ArrayList, Configuration, HighlightedTextWriter, ScriptExportMode
 from ..swf import Swf
 
@@ -41,6 +40,8 @@ if sys.platform in ["win32", "win64"]:
         with open(os.path.join(os.path.join(steamHomePath, "steamapps"), "libraryfolders.vdf")) as vdf:
             for path in [*re.findall(r'(?:"\d{1,3}"|"path")\t{2}"(.+)"', vdf.read()), steamHomePath]:
                 folder = os.path.join(path.replace("\\\\", "\\"), "steamapps")
+                if not os.path.exists(folder):
+                    continue
                 if "common" in os.listdir(folder) and "Brawlhalla" in os.listdir(os.path.join(folder, "common")):
                     brawlhallaFolders.append(os.path.join(folder, "common", "Brawlhalla"))
 
@@ -89,7 +90,7 @@ if sys.platform in ["win32", "win64"]:
     if BRAWLHALLA_PATH is None:
         import multiprocessing
 
-        Error("ModLoader Core", "Brawlhalla not found!")
+        FileExistsError("Brawlhalla not found!")
 
         if multiprocessing.parent_process() is not None:
             os.kill(multiprocessing.parent_process().pid, 15)

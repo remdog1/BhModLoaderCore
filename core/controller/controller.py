@@ -2,22 +2,16 @@ import multiprocessing
 
 from ..commands import Environment
 from ..notifications import Notification
-from ..utils.error import Error
 
 
 def run_server_process(recv_queue: multiprocessing.Queue, send_queue: multiprocessing.Queue):
-    try:
-        from ..worker.dispatch import Dispatch
-        from ..worker.basedispatch import SetDispatchQueue
+    from ..worker.dispatch import Dispatch
+    from ..worker.basedispatch import SetDispatchQueue
 
-        server_thread = Dispatch()
-        SetDispatchQueue(recv_queue, send_queue)
-        server_thread.start()
-        server_thread.join()
-    except:
-        import sys
-        import traceback
-        Error("ModLoader Core", "".join(traceback.format_exception(*sys.exc_info())))
+    server_thread = Dispatch()
+    SetDispatchQueue(recv_queue, send_queue)
+    server_thread.start()
+    server_thread.join()
 
 
 class BaseController:

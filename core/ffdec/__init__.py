@@ -1,7 +1,6 @@
 import os
 import sys
 import jpype
-from ..utils.error import Error
 
 __all__ = []
 
@@ -20,11 +19,7 @@ else:
         jvmpath = jpype._jvmfinder.getDefaultJVMPath()
     except jpype._jvmfinder.JVMNotFoundException:
         jvmpath = ""
-
-        try:
-            Error("ModLoader Core", "Java not found!")
-        except ImportError:
-            print("Java not found!")
+        raise ImportError("Java not found!")
 
 jpype.startJVM(classpath=[FFDEC_LIB, CMYKJPEG_LIB, JL_LIB], jvmpath=jvmpath)
 
