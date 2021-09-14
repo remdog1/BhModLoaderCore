@@ -763,4 +763,5 @@ class ModClass(ModCache):
 
     def delete(self):
         self.removeCache()
-        os.remove(self.modPath)
+        if self.modPath:
+            os.remove(self.modPath)
