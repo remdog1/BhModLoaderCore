@@ -288,9 +288,16 @@ class ModSource(BaseModClass):
                                 self.swfs[gameSwfName]["sprites"].append(spriteAnchor)
 
                                 spriteSwf = Swf(os.path.join(categoryPath, elementPath, "frames.swf"))
-                                spriteId = GetElementId(
-                                    list(sorted(spriteSwf.elementsList, key=lambda x: GetElementId(x)))[-1]
-                                )
+
+                                spriteId = 0
+                                for element in spriteSwf.elementsList[::-1]:
+                                    if isinstance(element, DefineSpriteTag):
+                                        spriteId = GetElementId(element)
+                                        break
+
+                                if spriteId == 0:
+                                    print("Not found sprite in:", elementPath)
+                                    continue
 
                                 cloneSprites = []
                                 cloneShapes = []
