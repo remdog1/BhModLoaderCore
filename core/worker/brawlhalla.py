@@ -38,12 +38,15 @@ if sys.platform in ["win32", "win64"]:
 
     if steamHomePath:
         with open(os.path.join(os.path.join(steamHomePath, "steamapps"), "libraryfolders.vdf")) as vdf:
-            for path in [*re.findall(r'(?:"\d{1,3}"|"path")\t{2}"(.+)"', vdf.read()), steamHomePath]:
-                folder = os.path.join(path.replace("\\\\", "\\"), "steamapps")
-                if not os.path.exists(folder):
-                    continue
-                if "common" in os.listdir(folder) and "Brawlhalla" in os.listdir(os.path.join(folder, "common")):
-                    brawlhallaFolders.append(os.path.join(folder, "common", "Brawlhalla"))
+            for path in [*re.findall(r'(?:"\d{1,3}"|"path")\t{2}"(.+)"\n', vdf.read()), steamHomePath]:
+                try:
+                    folder = os.path.join(path.replace("\\\\", "\\"), "steamapps")
+                    if not os.path.exists(folder):
+                        continue
+                    if "common" in os.listdir(folder) and "Brawlhalla" in os.listdir(os.path.join(folder, "common")):
+                        brawlhallaFolders.append(os.path.join(folder, "common", "Brawlhalla"))
+                except:
+                    pass
 
         brawlhallaFolders = list({*brawlhallaFolders, *ModloaderCoreConfig.brawlhallaAllowedPaths})
 
