@@ -497,7 +497,7 @@ class ModClass(ModCache):
                 self.modsHashSumCache.setHash(modHashSum, self.hash)
                 self.modsHashSumCache.save()
 
-                self.loadCache(ignoredVars=["installed"])
+                self.loadCache(allowedVars=["installed"])
         elif modHash is not None:
             self.modFileExist = False
             self.modSwf = None
