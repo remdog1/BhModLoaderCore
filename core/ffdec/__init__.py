@@ -21,11 +21,13 @@ else:
         jvmpath = ""
         raise ImportError("Java not found!")
 
-jpype.startJVM(classpath=[FFDEC_LIB, CMYKJPEG_LIB, JL_LIB], jvmpath=jvmpath)
+jpype.startJVM("-XX:+UseShenandoahGC",
+               "-XX:+UnlockExperimentalVMOptions",
+               "-XX:ShenandoahUncommitDelay=1000",
+               "-XX:ShenandoahGuaranteedGCInterval=10000",
+               "-XX:MinHeapFreeRatio=5",
+               "-XX:MaxHeapFreeRatio=5",
+               "-XX:-AggressiveHeap",
+               classpath=[FFDEC_LIB, CMYKJPEG_LIB, JL_LIB], jvmpath=jvmpath)
 
 from .classes import *
-
-# import multiprocessing
-# process = multiprocessing.current_process()
-# if process._parent_pid is not None:
-#    print("Parent process:", process._parent_name)
