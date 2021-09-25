@@ -93,16 +93,19 @@ class GameSwf(GameSwfData):
             return
         origSound = self.gameSwf.getElementById(origSoundId, DefineSoundTag)[0]
 
-        newOrigSoundId = self.gameSwf.getNextCharacterId()
-        if self.gameSwf.symbolClass.getTag(newOrigSoundId) is not None:
-            self.gameSwf.symbolClass.removeTag(newOrigSoundId)
+        # If orig not cloned
+        if soundAnchor not in self.anchors:
+            newOrigSoundId = self.gameSwf.getNextCharacterId()
+            if self.gameSwf.symbolClass.getTag(newOrigSoundId) is not None:
+                self.gameSwf.symbolClass.removeTag(newOrigSoundId)
+
+            self.gameSwf.cloneAndAddElement(origSound, newOrigSoundId)
+            self.anchors[soundAnchor] = newOrigSoundId
 
         cloneSound = sound.cloneTag()
-        self.gameSwf.cloneAndAddElement(origSound, newOrigSoundId)
         self.gameSwf.replaceElement(origSound, cloneSound)
         SetElementId(cloneSound, origSoundId)
 
-        self.anchors[soundAnchor] = newOrigSoundId
         self.modifiedAnchorsMap[soundAnchor] = modHash
 
         if not fileOpen:
@@ -124,19 +127,29 @@ class GameSwf(GameSwfData):
             return
         origSprite = self.gameSwf.getElementById(origSpriteId, DefineSpriteTag)[0]
 
+        # Remove modified sprite
+        if spriteAnchor in self.anchors:
+            for needElId in GetNeededCharactersId(origSprite):
+                for needEl in self.gameSwf.getElementById(needElId):
+                    self.gameSwf.removeElement(needEl)
+
         for needElement in [*GetNeededCharacters(sprite), sprite]:
             if GetElementId(needElement) not in elementsMap:
                 if needElement == sprite:
+                    # If orig cloned
+                    if spriteAnchor not in self.anchors:
+                        newOrigSpriteId = self.gameSwf.getNextCharacterId()
+                        if self.gameSwf.symbolClass.getTag(newOrigSpriteId) is not None:
+                            self.gameSwf.symbolClass.removeTag(newOrigSpriteId)
+
+                        self.gameSwf.cloneAndAddElement(origSprite, newOrigSpriteId)
+                        self.anchors[spriteAnchor] = newOrigSpriteId
+
                     newElId = origSpriteId
                     cloneEl = sprite.cloneTag()
-                    newOrigSpriteId = self.gameSwf.getNextCharacterId()
-                    if self.gameSwf.symbolClass.getTag(newOrigSpriteId) is not None:
-                        self.gameSwf.symbolClass.removeTag(newOrigSpriteId)
-                    self.gameSwf.cloneAndAddElement(origSprite, newOrigSpriteId)
                     self.gameSwf.replaceElement(origSprite, cloneEl)
                     SetElementId(cloneEl, origSpriteId)
 
-                    self.anchors[spriteAnchor] = newOrigSpriteId
                 else:
                     newElId = self.gameSwf.getNextCharacterId()
                     cloneEl = self.gameSwf.cloneAndAddElement(needElement, newElId)
