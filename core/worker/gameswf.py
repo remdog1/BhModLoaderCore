@@ -82,6 +82,25 @@ class GameSwf(GameSwfData):
         if modHash not in self.installed:
             self.installed.append(modHash)
 
+    def importScript(self, content: str, scriptAnchor: str, modHash: str):
+        # Clone orig sprite
+        if scriptAnchor not in self.scripts:
+            origContent = self.gameSwf.getAS3(scriptAnchor)
+
+            if origContent is None:
+                return False
+
+            self.scripts[scriptAnchor] = origContent
+
+        success = self.gameSwf.setAS3(scriptAnchor, content)
+
+        if success:
+            self.modifiedAnchorsMap[scriptAnchor] = modHash
+            return True
+
+        else:
+            return False
+
     def importSound(self, sound: DefineSoundTag, soundAnchor: str, modHash: str):
         fileOpen = self.gameSwf.isOpen()
         if not fileOpen:
@@ -200,10 +219,19 @@ class GameSwf(GameSwfData):
         if not fileOpen:
             self.open()
 
-        # TODO: Scripts
-
         for anchor, _modHash in self.modifiedAnchorsMap.copy().items():
             if _modHash == modHash:
+
+                # Repair script
+                if anchor in self.scripts:
+                    self.gameSwf.setAS3(anchor, self.scripts[anchor])
+
+                    self.scripts.pop(anchor, None)
+                    self.modifiedAnchorsMap.pop(anchor, None)
+
+                    continue
+
+                # Repair sounds and sprites
                 origElId = self.anchors.get(anchor)
                 if origElId is None:
                     #print(f"Error: Orig element '{anchor}' not found!")

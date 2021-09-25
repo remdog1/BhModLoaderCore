@@ -219,7 +219,6 @@ class ModSource(BaseModClass):
                len(self.getPreviewsPaths()) - 1  # 1 - _cache.json
 
     def compile(self):
-        #print(f"Compile mod '{self.name}'")
         SendNotification(NotificationType.CompileElementsCount, self.hash, self.getElementsCount())
 
         if os.path.exists(self.modPath):
@@ -681,7 +680,14 @@ class ModClass(ModCache):
 
             for category, elements in swfMap.items():
                 if category == "scripts":
-                    pass
+                    for scriptAnchor, content in elements.items():
+                        SendNotification(NotificationType.InstallingModSwfScript, self.hash, scriptAnchor)
+
+                        success = gameFile.importScript(content, scriptAnchor, self.hash)
+
+                        if not success:
+                            SendNotification(NotificationType.InstallingModSwfScriptError, self.hash, scriptAnchor)
+
                     # TODO: scripts
                 elif category == "sounds":
                     for soundAnchor in elements:

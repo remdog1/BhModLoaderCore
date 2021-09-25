@@ -22,6 +22,7 @@ class NotificationType(Enum):
     # Errors
     CompileModSourcesSpriteHasNoSymbolclass = auto()
     CompileModSourcesSpriteEmpty = auto()
+    CompileModSourcesSpriteNotFoundInFolder = auto()
     CompileModSourcesUnsupportedCategory = auto()
     CompileModSourcesUnknownFile = auto()
 
@@ -40,6 +41,7 @@ class NotificationType(Enum):
     # Installing
     ForceInstallation = auto()
     InstallingModSwf = auto()
+    InstallingModSwfScript = auto()
     InstallingModSwfSound = auto()
     InstallingModSwfSprite = auto()
     InstallingModFile = auto()
@@ -62,6 +64,8 @@ class NotificationType(Enum):
 
     InstallingModNotFoundFileElement = auto()  # If not found file (jpg, mp3, png) in mod file
     InstallingModNotFoundGameSwf = auto()
+
+    InstallingModSwfScriptError = auto()
 
     InstallingModSwfSoundSymbolclassNotExist = auto()  # If sound symbolclass not in game swf
     InstallingModSoundNotExist = auto()  # If sound not in mod file
