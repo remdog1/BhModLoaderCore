@@ -20,6 +20,7 @@ from ..ffdec.classes import (IOFile,
                              FontTag,
                              MissingCharacterHandler,
                              ByteArrayRange,
+                             As3ScriptReplacerFactory,
                              SymbolClassTag,
                              DefineShapeTags,
                              DefineSpriteTag,
@@ -382,6 +383,22 @@ class Swf:
     def AS3Packs(self):
         return self._swf.getAS3Packs()
 
+    def getAS3(self, scriptName: str):
+        for pack in self.AS3Packs:
+            if str(pack) != scriptName: continue
+            return str(self._swf.getCached(pack).text)
+
+        return None
+
+    def setAS3(self, scriptName: str, as3: str):
+        for pack in self.AS3Packs:
+            if str(pack) != scriptName: continue
+            scriptReplacer = As3ScriptReplacerFactory.createByConfig()
+            pack.abc.replaceScriptPack(scriptReplacer, pack, as3)
+            return True
+
+        return False
+
     def addElement(self, element, elId=None):
         self._swf.addTag(element)
 
@@ -413,7 +430,8 @@ class Swf:
 
         self._swf.removeTag(element)
 
-        self.elementsList.remove(element)
+        if element in self.elementsList:
+            self.elementsList.remove(element)
         # self.elementsMap.pop(element)
         # self.elementsMapByType[elType].pop(elId)
 
