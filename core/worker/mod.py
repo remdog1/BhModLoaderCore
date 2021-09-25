@@ -295,7 +295,7 @@ class ModSource(BaseModClass):
                                         break
 
                                 if spriteId == 0:
-                                    print("Not found sprite in:", elementPath)
+                                    #print("Not found sprite in:", elementPath)
                                     SendNotification(NotificationType.CompileModSourcesSpriteNotFoundInFolder,
                                                      self.hash, elementPath)
                                     continue
@@ -513,7 +513,7 @@ class ModClass(ModCache):
                 self.removeCache()
                 raise Exception("Not found mods cache")
         else:
-            SendNotification(NotificationType.LoadingModIsEmpty, modPath)
+            SendNotification(NotificationType.LoadingModIsEmpty, None, modPath)
 
         if BRAWLHALLA_VERSION is not None and BRAWLHALLA_VERSION == self.gameVersion:
             self.currentVersion = True
@@ -700,7 +700,7 @@ class ModClass(ModCache):
                         if soundId is None:
                             #print(f"Error: Sound {soundAnchor} does not exist")
                             SendNotification(NotificationType.InstallingModSwfSoundSymbolclassNotExist,
-                                             self.hash, soundAnchor)
+                                             self.hash, soundAnchor, swfName)
                             continue
 
                         sound = self.modSwf.getElementById(soundId, DefineSoundTag)
@@ -709,7 +709,7 @@ class ModClass(ModCache):
                         else:
                             #print(f"Error: Sound {soundId} {soundAnchor} does not exist")
                             SendNotification(NotificationType.InstallingModSoundNotExist,
-                                             self.hash, soundId, soundAnchor)
+                                             self.hash, soundAnchor, soundId, swfName)
                             continue
 
                         gameFile.importSound(sound, soundAnchor, self.hash)
@@ -723,7 +723,7 @@ class ModClass(ModCache):
                         if spriteId is None:
                             #print(f"Error: Sprite {spriteAnchor} does not exist")
                             SendNotification(NotificationType.InstallingModSwfSpriteSymbolclassNotExist,
-                                             self.hash, spriteAnchor)
+                                             self.hash, spriteAnchor, swfName)
                             continue
 
                         sprite = self.modSwf.getElementById(spriteId, DefineSpriteTag)
@@ -732,7 +732,7 @@ class ModClass(ModCache):
                         else:
                             #print(f"Error: Sprite {spriteId} {spriteAnchor} does not exist")
                             SendNotification(NotificationType.InstallingModSpriteNotExist,
-                                             self.hash, spriteId, spriteAnchor)
+                                             self.hash, spriteAnchor, spriteId, swfName)
                             continue
 
                         gameFile.importSprite(sprite, spriteAnchor, self.hash, elementsMap)

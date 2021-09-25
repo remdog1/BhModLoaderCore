@@ -49,6 +49,7 @@ class GameSwfData(DataClass):
 
 class GameSwf(GameSwfData):
     def __init__(self, gameFilePath: str):
+        self.swfName = os.path.split(gameFilePath)[1]
         self.gameSwf = Swf(gameFilePath, autoload=False)
 
     def open(self):
@@ -235,26 +236,30 @@ class GameSwf(GameSwfData):
                 origElId = self.anchors.get(anchor)
                 if origElId is None:
                     #print(f"Error: Orig element '{anchor}' not found!")
-                    SendNotification(NotificationType.UninstallingModSwfOriginalElementNotFound, _modHash, anchor)
+                    SendNotification(NotificationType.UninstallingModSwfOriginalElementNotFound,
+                                     _modHash, anchor, self.swfName)
                     continue
                 origEl = self.gameSwf.getElementById(origElId)
 
                 if origEl:
                     origEl = origEl[0]
                 else:
-                    print("Error: ")
+                    print("Error: origEl = origEl[0]")
+                    continue
 
                 modElId = self.gameSwf.symbolClass.getTagByName(anchor)
                 if modElId is None:
                     #print(f"Error: Mod element '{modElId}' not found!")
-                    SendNotification(NotificationType.UninstallingModSwfElementNotFound, _modHash, anchor)
+                    SendNotification(NotificationType.UninstallingModSwfElementNotFound,
+                                     _modHash, anchor, self.swfName)
                     continue
                 modEl = self.gameSwf.getElementById(modElId)
 
                 if modEl:
                     modEl = modEl[0]
                 else:
-                    print("Error: ")
+                    print("Error: modEl = modEl[0]")
+                    continue
 
                 if isinstance(modEl, DefineSoundTag):
                     #print(f"Remove Sound {anchor}")
