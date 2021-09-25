@@ -80,4 +80,8 @@ class BaseDispatch(threading.Thread):
 
 
 def SendNotification(notificationType: NotificationType, *args):
-    BaseDispatch.runThread.sendNotification(Notification(notificationType, *args))
+    dispath = BaseDispatch.runThread
+    if dispath is not None:
+        dispath.sendNotification(Notification(notificationType, *args))
+    else:
+        print(notificationType, "-", *args)
