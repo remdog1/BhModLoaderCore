@@ -296,6 +296,8 @@ class ModSource(BaseModClass):
 
                                 if spriteId == 0:
                                     print("Not found sprite in:", elementPath)
+                                    SendNotification(NotificationType.CompileModSourcesSpriteNotFoundInFolder,
+                                                     self.hash, elementPath)
                                     continue
 
                                 cloneSprites = []
