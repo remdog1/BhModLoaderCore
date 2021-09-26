@@ -21,15 +21,17 @@ if sys.platform.startswith("win"):
         raise ImportError("Java not found!")
 
     flashlibFolder = os.path.join(os.getenv("APPDATA"), "JPEXS", "FFDec", "flashlib")
+    flashlibFile = os.path.join(flashlibFolder, "playerglobal32_0.swc")
 
-    if not os.path.exists(flashlibFolder):
-        os.mkdir(flashlibFolder)
+    if not os.path.exists(flashlibFile):
+        if not os.path.exists(flashlibFolder):
+            os.mkdir(flashlibFolder)
 
-    with open(PLAYERGLOBAL, "rb") as orig:
-        with open(os.path.join(flashlibFolder, "playerglobal32_0.swc"), "wb") as new:
-            new.write(orig.read())
+        with open(PLAYERGLOBAL, "rb") as orig:
+            with open(flashlibFile, "wb") as new:
+                new.write(orig.read())
 
-if sys.platform == "darwin":
+elif sys.platform == "darwin":
     jvmpath = "/Library/Internet Plug-Ins/JavaAppletPlugin.plugin/Contents/Home/lib/jli/libjli.dylib"
 
 else:
