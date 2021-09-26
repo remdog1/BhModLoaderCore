@@ -37,6 +37,7 @@ run_flags = [
 for flags in run_flags:
     try:
         jpype.startJVM(*flags, classpath=[FFDEC_LIB, CMYKJPEG_LIB, JL_LIB], jvmpath=jvmpath)
+        break
     except:
         pass
 
