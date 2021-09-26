@@ -26,6 +26,8 @@ class NotificationType(Enum):
     CompileModSourcesUnsupportedCategory = auto()
     CompileModSourcesUnknownFile = auto()
 
+    CompileModSourcesSaveError = auto()
+
     ## Mods
     # Loading
     LoadingMod = auto()

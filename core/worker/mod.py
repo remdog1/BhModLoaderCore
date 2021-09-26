@@ -141,11 +141,10 @@ class ModSource(BaseModClass):
         self.loadModData()
 
     def loadModData(self):
-        loaded = self.loadJsonFile(self.cachePath, ["formatVersion", "swfs", "files", "previewsIds"])
+        loaded = self.loadJsonFile(self.cachePath, ignoredVars=["formatVersion", "swfs", "files", "previewsIds"])
 
         if not loaded:
             #print(f"New mod source '{self.folderName}' detected")
-            #SendNotification(NotificationType.CompileModSourcesImportSound, self.folderName)
             self.saveModData()
 
     def saveModData(self):
@@ -271,7 +270,7 @@ class ModSource(BaseModClass):
 
                         elif category == "sprites":
                             if sprite := self.regexSpriteFile.findall(elementPath):
-                                spriteId, spriteAnchor = sprite[0]
+                                _, spriteAnchor = sprite[0]
                                 #spriteId = int(spriteId)
 
                                 #print("Import Sprite", spriteAnchor)
@@ -345,7 +344,6 @@ class ModSource(BaseModClass):
                                 if cloneSprites:
                                     modSwf.symbolClass.addTag(elementsMap[spriteId], spriteAnchor)
                                 else:
-                                    #print("Error: Empty sprite")
                                     SendNotification(NotificationType.CompileModSourcesSpriteEmpty,
                                                      self.hash, spriteAnchor)
 
@@ -379,15 +377,14 @@ class ModSource(BaseModClass):
                             #print("Error: Unknown file:", file)
                             SendNotification(NotificationType.CompileModSourcesUnknownFile, self.hash, file)
 
-        #print(f"Mod '{self.name}' compiled")
-        SendNotification(NotificationType.CompileModSourcesFinished, self.hash)
-
-        #print(self.getJson(formatJson=True))
-
-        modSwf.metaData.set(self.getDict())
-        modSwf.save()
-        modSwf.close()
-        del modSwf
+        try:
+            modSwf.metaData.set(self.getDict())
+            modSwf.save()
+            modSwf.close()
+            del modSwf
+            SendNotification(NotificationType.CompileModSourcesFinished, self.hash)
+        except:
+            SendNotification(NotificationType.CompileModSourcesSaveError, self.hash)
 
     def delete(self):
         shutil.rmtree(self.modSourcesPath)
