@@ -21,13 +21,26 @@ else:
         jvmpath = ""
         raise ImportError("Java not found!")
 
-jpype.startJVM("-XX:+UseShenandoahGC",
-               "-XX:+UnlockExperimentalVMOptions",
-               "-XX:ShenandoahUncommitDelay=1000",
-               "-XX:ShenandoahGuaranteedGCInterval=10000",
-               "-XX:MinHeapFreeRatio=5",
-               "-XX:MaxHeapFreeRatio=5",
-               "-XX:-AggressiveHeap",
-               classpath=[FFDEC_LIB, CMYKJPEG_LIB, JL_LIB], jvmpath=jvmpath)
+run_flags = [
+    ("-XX:+UseShenandoahGC",
+     "-XX:+UnlockExperimentalVMOptions",
+     "-XX:ShenandoahUncommitDelay=1000",
+     "-XX:ShenandoahGuaranteedGCInterval=10000",
+     "-XX:MinHeapFreeRatio=5",
+     "-XX:MaxHeapFreeRatio=5",
+     "-XX:-AggressiveHeap"),
+
+    ("-Xmx512m",
+     "-Xms32m")
+]
+
+for flags in run_flags:
+    try:
+        jpype.startJVM(*flags, classpath=[FFDEC_LIB, CMYKJPEG_LIB, JL_LIB], jvmpath=jvmpath)
+    except:
+        pass
+
+else:
+    raise Exception("Run Java error")
 
 from .classes import *
