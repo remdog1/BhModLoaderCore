@@ -361,6 +361,7 @@ class Swf:
             self.elementsList = []
             # self.elementsMap = {}
             # self.elementsMapByType = {}
+            self.metaData = None
             self.symbolClass = None
 
     def addMetadata(self):

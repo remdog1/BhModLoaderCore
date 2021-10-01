@@ -29,6 +29,7 @@ from ..swf.swf import Swf, GetElementId, SetElementId, GetShapeBitmapId, SetShap
 from ..ffdec.classes import (CSMTextSettingsTag,
                              DefineFontNameTag,
                              DefineFontAlignZonesTag,
+                             DefineBitsLosslessTags,
                              DefineFontTags,
                              DefineEditTextTag,
                              DefineSoundTag,
@@ -271,14 +272,11 @@ class ModSource(BaseModClass):
                         elif category == "sprites":
                             if sprite := self.regexSpriteFile.findall(elementPath):
                                 _, spriteAnchor = sprite[0]
-                                #spriteId = int(spriteId)
 
-                                #print("Import Sprite", spriteAnchor)
                                 SendNotification(NotificationType.CompileModSourcesImportSprite,
                                                  self.hash, spriteAnchor)
 
                                 if not spriteAnchor:
-                                    #print(f"Error: Sprite {spriteId} has no anchor ")
                                     SendNotification(NotificationType.CompileModSourcesSpriteHasNoSymbolclass,
                                                      self.hash, elementPath)
                                     continue
@@ -287,13 +285,14 @@ class ModSource(BaseModClass):
 
                                 spriteSwf = Swf(os.path.join(categoryPath, elementPath, "frames.swf"))
 
+                                spriteElement = None
                                 spriteId = 0
                                 for element in spriteSwf.elementsList[::-1]:
                                     if isinstance(element, DefineSpriteTag):
+                                        spriteElement = element
                                         spriteId = GetElementId(element)
                                         break
-
-                                if spriteId == 0:
+                                else:
                                     #print("Not found sprite in:", elementPath)
                                     SendNotification(NotificationType.CompileModSourcesSpriteNotFoundInFolder,
                                                      self.hash, elementPath)
@@ -305,8 +304,20 @@ class ModSource(BaseModClass):
                                 for element in sorted(spriteSwf.elementsList, key=lambda x: GetElementId(x)):
                                     if not isinstance(element,
                                                       (CSMTextSettingsTag, DefineFontNameTag,
-                                                       DefineFontAlignZonesTag)) and \
-                                            GetElementId(element) not in elementsMap:
+                                                       DefineFontAlignZonesTag, PlaceObject2Tag)):
+
+                                        if GetElementId(element) in elementsMap:
+                                            if element == spriteElement:
+                                                for _element in spriteSwf.elementsList:
+                                                    if isinstance(_element, (*DefineShapeTags, DefineEditTextTag,
+                                                                             DefineSpriteTag,
+                                                                             *DefineBitsLosslessTags)) or \
+                                                            element == spriteElement:
+
+                                                        elementsMap.pop(GetElementId(_element), None)
+                                            else:
+                                                continue
+
                                         newElId = modSwf.getNextCharacterId()
                                         cloneEl = modSwf.cloneAndAddElement(element, newElId)
                                         elementsMap[GetElementId(element)] = GetElementId(cloneEl)
