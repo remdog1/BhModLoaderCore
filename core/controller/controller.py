@@ -80,6 +80,9 @@ class Controller(BaseController):
     def getModsSourcesData(self):
         self.sendEnv(Environment.GetModsSourcesData)
 
+    def installBaseMod(self, text):
+        self.sendEnv(Environment.InstallBaseMod, text)
+
     def getModConflict(self, hash):
         self.sendEnv(Environment.GetModConflict, hash)
 

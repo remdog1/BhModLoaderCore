@@ -3,6 +3,7 @@ import threading
 from .basedispatch import BaseDispatch, Index
 from .variables import *
 from .modloader import ModLoader
+from .basemod import InstallBaseMod
 
 from ..commands import Environment
 
@@ -35,6 +36,10 @@ class Dispatch(BaseDispatch):
     @Index(Environment.GetModsSourcesData)
     def getModsSourcesData(self):
         return ModLoader.getModsSourcesData()
+
+    @Index(Environment.InstallBaseMod)
+    def installBaseMod(self, text):
+        InstallBaseMod(text)
 
     @Index(Environment.GetModConflict)
     def getModConflict(self, hash):

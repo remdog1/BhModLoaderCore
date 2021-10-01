@@ -29,6 +29,7 @@ As3ScriptReplacerFactory = JClass('com.jpexs.decompiler.flash.importers.As3Scrip
 #  Types
 RECT = JClass('com.jpexs.decompiler.flash.types.RECT')
 FILLSTYLE = JClass('com.jpexs.decompiler.flash.types.FILLSTYLE')
+MATRIX = JClass('com.jpexs.decompiler.flash.types.MATRIX')
 
 #  Helpers
 ByteArrayRange = JClass("com.jpexs.helpers.ByteArrayRange")

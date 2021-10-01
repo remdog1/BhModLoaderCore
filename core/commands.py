@@ -9,6 +9,8 @@ class Environment(Enum):
     GetModsData = auto()
     GetModsSourcesData = auto()
 
+    InstallBaseMod = auto()
+
     GetModConflict = auto()
     InstallMod = auto()
     ForceInstallMod = auto()
