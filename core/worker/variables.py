@@ -1,7 +1,7 @@
 import os
 import sys
 
-CORE_VERSION = "0.1.9"
+CORE_VERSION = "1.0.0"
 
 MODS_PATH = []
 MODS_SOURCES_PATH = []
