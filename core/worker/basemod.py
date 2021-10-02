@@ -26,7 +26,7 @@ leading 40
 ]<p align="{align}"><font face="Eras Demi ITC" size="{fontSize}" color="#{color2}" letterSpacing="0.00" kerning="1">{text}</font></p>
 """.strip()
 
-UI_SCREEN_SOCIAL_HUB_MOD_V1_ID = "init_ScreenSocialHub"
+UI_SCREEN_SOCIAL_HUB_MOD_V1_ID = "init_ScreenSocialHubV1"
 BH_VERSION_TEXT = f"Brawlhalla: {BRAWLHALLA_VERSION}"
 
 
