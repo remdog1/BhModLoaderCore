@@ -22,10 +22,12 @@ from ..ffdec.classes import (IOFile,
                              ByteArrayRange,
                              As3ScriptReplacerFactory,
                              SymbolClassTag,
+                             DefineMorphShapeTag,
                              DefineShapeTags,
                              DefineSpriteTag,
                              DefineSoundTag,
                              DefineEditTextTag,
+                             DefineTextTag,
                              CSMTextSettingsTag,
                              DefineFontTag,
                              DefineFont3Tag,
@@ -64,11 +66,17 @@ def GetElementId(element):
     if elType in DefineShapeTags:
         elId = element.shapeId
 
+    elif elType == DefineMorphShapeTag:
+        elId = element.characterId
+
     elif elType == DefineSpriteTag:
         elId = element.spriteId
 
     elif elType == DefineSoundTag:
         elId = element.soundId
+
+    elif elType == DefineTextTag:
+        elId = element.characterID
 
     elif elType == DefineEditTextTag:
         elId = element.characterID
@@ -109,11 +117,17 @@ def SetElementId(element, elId: int):
     if elType in DefineShapeTags:
         element.shapeId = elId
 
+    elif elType == DefineMorphShapeTag:
+        element.characterId = elId
+
     elif elType == DefineSpriteTag:
         element.spriteId = elId
 
     elif elType == DefineSoundTag:
         element.soundId = elId
+
+    elif elType == DefineTextTag:
+        element.characterID = elId
 
     elif elType == DefineEditTextTag:
         element.characterID = elId

@@ -19,6 +19,7 @@ from ..ffdec.classes import (DefineSpriteTag,
                              DefineFontNameTag,
                              DefineFontAlignZonesTag,
                              DefineEditTextTag,
+                             DefineTextTag,
                              DefineShapeTags,
                              DefineSoundTag,
                              CSMTextSettingsTag,
@@ -178,6 +179,7 @@ class GameSwf(GameSwfData):
                         self.gameSwf.symbolClass.removeTag(newElId)
 
                 elementsMap[GetElementId(needElement)] = newElId
+
                 if isinstance(cloneEl, DefineShapeTags):
                     if GetShapeBitmapId(cloneEl) is not None:
                         cloneShapes.append(cloneEl)
@@ -185,17 +187,26 @@ class GameSwf(GameSwfData):
                 elif isinstance(cloneEl, DefineSpriteTag):
                     cloneSprites.append(cloneEl)
 
-                if isinstance(needElement, DefineFontTags):
+                if isinstance(cloneEl, DefineFontTags):
                     for dependentElement in GetSwfByElement(sprite).getElementById(GetElementId(needElement),
                                                                                    (DefineFontNameTag,
                                                                                    DefineFontAlignZonesTag)):
                         self.gameSwf.cloneAndAddElement(dependentElement, newElId)
 
-                elif isinstance(needElement, DefineEditTextTag):
+                elif isinstance(cloneEl, DefineEditTextTag):
                     if dependentElement := GetSwfByElement(sprite).getElementById(GetElementId(needElement),
                                                                                   CSMTextSettingsTag):
                         self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
                     cloneEl.fontId = elementsMap[needElement.fontId]
+
+                elif isinstance(cloneEl, DefineTextTag):
+                    if dependentElement := GetSwfByElement(sprite).getElementById(GetElementId(needElement),
+                                                                                  CSMTextSettingsTag):
+                        self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
+
+                    for textRecord in cloneEl.textRecords:
+                        if textRecord.styleFlagsHasFont:
+                            textRecord.fontId = elementsMap[textRecord.fontId]
 
         for cloneSprite in cloneSprites:
             for sEl in cloneSprite.getTags().iterator():

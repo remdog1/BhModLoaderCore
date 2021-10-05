@@ -55,6 +55,7 @@ DefineShapeTags = (
     DefineShape3Tag,
     DefineShape4Tag
 )
+DefineMorphShapeTag = JClass("com.jpexs.decompiler.flash.tags.DefineMorphShapeTag")
 FontTag = JClass('com.jpexs.decompiler.flash.tags.base.FontTag')
 DefineFontTag = JClass('com.jpexs.decompiler.flash.tags.DefineFontTag')
 DefineFont2Tag = JClass('com.jpexs.decompiler.flash.tags.DefineFont2Tag')
@@ -68,6 +69,7 @@ DefineFontTags = (
 )
 DefineSpriteTag = JClass('com.jpexs.decompiler.flash.tags.DefineSpriteTag')
 DefineSoundTag = JClass('com.jpexs.decompiler.flash.tags.DefineSoundTag')
+DefineTextTag = JClass('com.jpexs.decompiler.flash.tags.DefineTextTag')
 DefineEditTextTag = JClass('com.jpexs.decompiler.flash.tags.DefineEditTextTag')
 CSMTextSettingsTag = JClass('com.jpexs.decompiler.flash.tags.CSMTextSettingsTag')
 DefineFontNameTag = JClass('com.jpexs.decompiler.flash.tags.DefineFontNameTag')

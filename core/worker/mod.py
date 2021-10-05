@@ -32,6 +32,7 @@ from ..ffdec.classes import (CSMTextSettingsTag,
                              DefineBitsLosslessTags,
                              DefineFontTags,
                              DefineEditTextTag,
+                             DefineTextTag,
                              DefineSoundTag,
                              DefineShapeTags,
                              DefineSpriteTag,
@@ -340,6 +341,15 @@ class ModSource(BaseModClass):
                                                                                             CSMTextSettingsTag):
                                                 modSwf.cloneAndAddElement(dependentElement[0], newElId)
                                             cloneEl.fontId = elementsMap[element.fontId]
+
+                                        elif isinstance(element, DefineTextTag):
+                                            if dependentElement := spriteSwf.getElementById(GetElementId(element),
+                                                                                            CSMTextSettingsTag):
+                                                modSwf.cloneAndAddElement(dependentElement[0], newElId)
+
+                                            for textRecord in cloneEl.textRecords:
+                                                if textRecord.styleFlagsHasFont:
+                                                    textRecord.fontId = elementsMap[textRecord.fontId]
 
                                 for cloneSprite in cloneSprites:
                                     for sEl in cloneSprite.getTags().iterator():
@@ -698,7 +708,6 @@ class ModClass(ModCache):
                         if not success:
                             SendNotification(NotificationType.InstallingModSwfScriptError, self.hash, scriptAnchor)
 
-                    # TODO: scripts
                 elif category == "sounds":
                     for soundAnchor in elements:
                         #print("Install Sound", soundAnchor)
