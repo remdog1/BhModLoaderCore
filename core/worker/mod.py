@@ -492,7 +492,7 @@ class ModClass(ModCache):
             if modHash := self.modsHashSumCache.getHash(modHashSum):
                 self.modCachePath = os.path.join(modsCachePath, modHash)
                 if os.path.exists(self.modCachePath):
-                    self.loadCache()
+                    self.loadCache(ignoredVars=["modFileExist"])
                 else:
                     _cache = True
             else:
