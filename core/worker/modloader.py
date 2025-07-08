@@ -33,7 +33,10 @@ class ModLoaderClass:
 
     def getModsData(self):
         return [{**mod.getDict(ignoredVars=["swfs", "files", "previewsIds", "formatType", "formatVersion"]),
-                 "previewsPaths": mod.getPreviewsPaths(), "currentGameVersion": self.config.brawlhallaVersion}
+                 "previewsPaths": mod.getPreviewsPaths(), "currentGameVersion": self.config.brawlhallaVersion,
+                 "modPath": mod.modPath,
+                 "modCachePath": mod.modCachePath,
+                 "dateAdded": mod.dateAdded}
                 for mod in self.modsClasses]
 
     def getModsSourcesData(self):
@@ -65,7 +68,9 @@ class ModLoaderClass:
             if modHash not in modsHashes:
                 try:
                     modClass = ModClass(modsCachePath=self.modsCachePath, modHash=modHash)
-                    self.modsClasses.append(modClass)
+                    if modClass.modFileExist:
+                        modsHashes.append(modClass.hash)
+                        self.modsClasses.append(modClass)
                 except:
                     pass
 

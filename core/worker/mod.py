@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import threading
+import time
 from typing import List, Dict, Tuple, Union
 
 from .vartypes import ModDataSwfsTyped
@@ -458,8 +459,14 @@ class ModCache(BaseModClass):
     DataVariable(METADATA_FORMAT_CACHE_MOD, 1, "currentVersion")
     currentVersion: bool = True
 
-    DataVariable(METADATA_FORMAT_CACHE_MOD, 1, "modFileExist")
+    DataVariable([METADATA_FORMAT_CACHE_MOD], 1, "modFileExist")
     modFileExist: bool = True
+
+    DataVariable([METADATA_FORMAT_CACHE_MOD], 2, "dateAdded")
+    dateAdded: float = 0.0
+
+    DataVariable([METADATA_FORMAT_CACHE_MOD], 1, "modPath")
+    modPath: str
 
     modCachePath: str
 
@@ -493,6 +500,9 @@ class ModClass(ModCache):
                 self.modCachePath = os.path.join(modsCachePath, modHash)
                 if os.path.exists(self.modCachePath):
                     self.loadCache(ignoredVars=["modFileExist"])
+                if not self.dateAdded:
+                    self.dateAdded = time.time()
+                    self.saveCache()
                 else:
                     _cache = True
             else:
@@ -522,11 +532,12 @@ class ModClass(ModCache):
             self.modSwf = None
             self.modCachePath = os.path.join(modsCachePath, modHash)
             self.hash = modHash
-            # if modHashSum := self.modsHashSumCache.getHashSum(modHash):
-            #    self.modsHashSumCache.removeHash(modHashSum)
-            #    self.modsHashSumCache.save()
             if os.path.exists(self.modCachePath):
-                self.loadCache(ignoredVars=["modFileExist"])
+                self.loadCache()  # Load all cached data
+                if self.modPath and os.path.exists(self.modPath):
+                    self.modFileExist = True
+                else:
+                    self.modFileExist = False # Cached mod, but file is missing
             else:
                 self.removeCache()
                 raise Exception("Not found mods cache")
@@ -679,7 +690,14 @@ class ModClass(ModCache):
                 SendNotification(NotificationType.InstallingModNotFoundFileElement, self.hash, elId)
                 continue
 
-            GameFiles.installFile(fileName, self.modSwf.exportBinaryData(fileElement), self.hash)
+            if fileName.endswith(".wem"):
+                GameFiles.installWem(fileName, self.modSwf.exportBinaryData(fileElement), self.hash)
+            elif fileName.endswith(".bnk"):
+                GameFiles.installBnk(fileName, self.modSwf.exportBinaryData(fileElement), self.hash)
+            elif fileName.endswith(".bin"):
+                GameFiles.installBin(fileName, self.modSwf.exportBinaryData(fileElement), self.hash)
+            else:
+                GameFiles.installFile(fileName, self.modSwf.exportBinaryData(fileElement), self.hash)
 
         for swfName, swfMap in self.swfs.items():
             gameFile = GetGameFileClass(swfName)
@@ -781,6 +799,14 @@ class ModClass(ModCache):
 
             gameFile.save()
             gameFile.close()
+
+        for elId, fileName in self.files.items():
+            if fileName.endswith(".wem"):
+                GameFiles.uninstallWem(fileName, self.hash)
+            elif fileName.endswith(".bnk"):
+                GameFiles.uninstallBnk(fileName, self.hash)
+            elif fileName.endswith(".bin"):
+                GameFiles.uninstallBin(fileName, self.hash)
 
         SendNotification(NotificationType.UninstallingModFinished, self.hash)
 

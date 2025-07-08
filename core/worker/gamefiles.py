@@ -1,5 +1,7 @@
 import os
+import json
 from typing import Dict, List
+import wwiser
 
 from .dataversion import DataClass, DataVariable
 from .variables import (DATA_FORMAT_MODLOADER_FILES,
@@ -91,6 +93,54 @@ class GameFilesClass(GameFilesData):
 
         pass
 
+    def installWem(self, fileName: str, modFileContent: bytes, modHash: str):
+        # Find the bnk file that contains the wem file
+        bnkFile = None
+        for bnkName, bnkPath in BRAWLHALLA_FILES.items():
+            if bnkName.endswith(".bnk"):
+                try:
+                    with open(bnkPath, "rb") as f:
+                        bnk = wwiser.WwiseBnk(f)
+                        if fileName in bnk.get_names():
+                            bnkFile = bnkPath
+                            break
+                except Exception as e:
+                    print(f"Error reading {bnkName}: {e}")
+        if bnkFile:
+            # Install the wem file into the bnk file
+            try:
+                with open(bnkFile, "r+b") as f:
+                    bnk = wwiser.WwiseBnk(f)
+                    bnk.replace_wem(fileName, modFileContent)
+                    bnk.save(f)
+                self.modifiedFilesMap[fileName] = modHash
+                self.saveData()
+            except Exception as e:
+                print(f"Error installing {fileName} into {bnkFile}: {e}")
+        else:
+            print(f"Could not find bnk file for {fileName}")
+
+    def installBnk(self, fileName: str, modFileContent: bytes, modHash: str):
+        self.installFile(fileName, modFileContent, modHash)
+
+    def installBin(self, fileName: str, modFileContent: bytes, modHash: str):
+        if fileName in BRAWLHALLA_FILES:
+            with open(BRAWLHALLA_FILES[fileName], "r+b") as f:
+                # Logic to patch the bin file
+                try:
+                    patch_data = json.loads(modFileContent)
+                    for item in patch_data:
+                        f.seek(item["offset"])
+                        f.write(item["data"].encode("utf-8"))
+                except json.JSONDecodeError:
+                    # It's not a json patch, so just replace the file
+                    f.seek(0)
+                    f.write(modFileContent)
+                    f.truncate()
+
+            self.modifiedFilesMap[fileName] = modHash
+            self.saveData()
+
     def repairFile(self, fileName: str):
         if fileName in self.origFiles:
             with open(os.path.join(self.origPreviewsPath, fileName), "rb") as copyFile:
@@ -110,6 +160,28 @@ class GameFilesClass(GameFilesData):
                 self.repairFile(fileName)
 
         self.saveData()
+
+    def uninstallWem(self, fileName: str, modHash: str):
+        # Find the bnk file that contains the wem file
+        bnkFile = None
+        for bnkName, bnkPath in BRAWLHALLA_FILES.items():
+            if bnkName.endswith(".bnk"):
+                try:
+                    with open(bnkPath, "rb") as f:
+                        bnk = wwiser.WwiseBnk(f)
+                        if fileName in bnk.get_names():
+                            bnkFile = bnkPath
+                            break
+                except Exception as e:
+                    print(f"Error reading {bnkName}: {e}")
+        if bnkFile:
+            self.repairFile(os.path.basename(bnkFile))
+
+    def uninstallBnk(self, fileName: str, modHash: str):
+        self.repairFile(fileName)
+
+    def uninstallBin(self, fileName: str, modHash: str):
+        self.repairFile(fileName)
 
     def getModConflict(self, files: List[str], modHash: str):
         conflictMods = set()

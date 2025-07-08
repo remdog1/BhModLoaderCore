@@ -1,0 +1,27 @@
+feat(core): Major Core Overhaul for New Installers, Stability, and Overlay System
+
+This is a foundational update to the BhModLoaderCore, introducing support for new mod types, critical stability fixes, and a completely resilient overlay system. This brings a new level of functionality and robustness to any application using this core.
+
+Authored by: remdog1
+
+---
+
+### ✨ Core Feature Enhancements
+
+1.  **New Mod Type Handlers:**
+    *   The core can now correctly process and install `.wem` (Wwise Encoded Media) and `.bnk` (SoundBank) files, enabling full audio modding capabilities.
+    *   Added logic to properly handle language `.bin` files, allowing for the installation of custom language packs.
+
+2.  **Resilient Loading Screen Overlay System:**
+    *   **Dynamic Detection:** The core now intelligently scans for all potential loading screen files, not just a single hardcoded name.
+    *   **Checksum-Based Caching:** It creates and stores a unique signature (hash) of the original, unmodified loading screens.
+    *   **Automatic Healing:** If a game update reverts a loading screen, the core detects the signature mismatch on the next run and automatically reapplies the overlay. This makes the feature persistent across game updates.
+    *   **High-Quality Image Processing:** Ensures the overlay is merged with minimal compression to preserve visual fidelity.
+
+### 🐛 Core Stability & Robustness
+
+*   **Corrected Pathing Logic:** Resolved a critical bug where the core was looking for UI resources in the wrong directory, which was the primary cause of the overlay failing.
+*   **Robust Error Handling:** The entire overlay process is now wrapped in error handling to prevent any potential issues from crashing the main application.
+*   **Modernized Imports:** Replaced outdated or incorrect import calls (e.g., `GetGamePath`) with direct access to the correct configuration variables (`BRAWLHALLA_PATH`), improving code clarity and stability.
+*   **Java Dependency Check:** Fixed a `NameError` crash by ensuring the `JAVA_FOUND` variable is always defined, providing clearer error messages when Java is missing.
+*   **Pillow Dependency:** The core now correctly utilizes the Pillow (PIL) library for image manipulation.
