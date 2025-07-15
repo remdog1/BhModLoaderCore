@@ -1,7 +1,7 @@
 import json
 from typing import Union
 from .bytearray import ByteArray
-from ..ffdec.classes import MetadataTag
+from core.core.ffdec.classes import MetadataTag
 
 
 class MetadataClass:

@@ -3,7 +3,7 @@ import re
 import hashlib
 from .metadataclass import MetadataClass
 from .symbolclass import SymbolClass
-from ..ffdec.classes import (IOFile,
+from core.core.ffdec.classes import (IOFile,
                              HashSet,
                              JavaFont,
                              FileInputStream,

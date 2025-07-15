@@ -5,7 +5,7 @@ from .variables import *
 from .modloader import ModLoader
 from .basemod import InstallBaseMod
 
-from ..commands import Environment
+from core.commands import Environment
 
 
 class Dispatch(BaseDispatch):

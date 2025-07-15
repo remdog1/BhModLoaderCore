@@ -7,8 +7,8 @@ from typing import Dict, List, Optional
 from .variables import MODLOADER_CACHE_PATH, MODLOADER_CACHE_FILES_FOLDER
 from .brawlhalla import BRAWLHALLA_FILES
 from .basedispatch import SendNotification
-from ..notifications import NotificationType
-from ..utils.hash import HashFile
+from core.notifications import NotificationType
+from core.core.utils.hash import HashFile
 
 # Import DecodeLang functionality
 import zlib

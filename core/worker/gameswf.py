@@ -6,7 +6,7 @@ from .variables import METADATA_FORMAT_GAME, METADATA_FORMAT_VERSION
 from .basedispatch import SendNotification
 
 from .brawlhalla import BRAWLHALLA_SWFS
-from ..swf.swf import (Swf,
+from core.core.swf.swf import (Swf,
                        GetNeededCharacters,
                        GetElementId,
                        SetElementId,
@@ -14,7 +14,7 @@ from ..swf.swf import (Swf,
                        GetNeededCharactersId,
                        GetShapeBitmapId,
                        SetShapeBitmapId)
-from ..ffdec.classes import (DefineSpriteTag,
+from core.core.ffdec.classes import (DefineSpriteTag,
                              DefineFontTags,
                              DefineFontNameTag,
                              DefineFontAlignZonesTag,
@@ -25,7 +25,7 @@ from ..ffdec.classes import (DefineSpriteTag,
                              CSMTextSettingsTag,
                              PlaceObject2Tag,
                              PlaceObject3Tag)
-from ..notifications import NotificationType
+from core.notifications import NotificationType
 
 
 class GameSwfData(DataClass):

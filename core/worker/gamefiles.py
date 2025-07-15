@@ -10,8 +10,8 @@ from .variables import (DATA_FORMAT_MODLOADER_FILES,
 from .brawlhalla import BRAWLHALLA_FILES
 from .basedispatch import SendNotification
 
-from ..utils.hash import HashFile, HashFromBytes
-from ..notifications import NotificationType
+from core.core.utils.hash import HashFile, HashFromBytes
+from core.notifications import NotificationType
 
 
 class GameFilesData(DataClass):

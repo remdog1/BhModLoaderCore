@@ -27,10 +27,10 @@ from .brawlhalla import BRAWLHALLA_SWFS, BRAWLHALLA_FILES, BRAWLHALLA_VERSION
 from .basedispatch import SendNotification
 from .bnkhandler import bnk_handler
 
-from ..utils.hash import RandomHash, HashFile
+from core.core.utils.hash import RandomHash, HashFile
 
-from ..swf.swf import Swf, GetElementId, SetElementId, GetShapeBitmapId, SetShapeBitmapId
-from ..ffdec.classes import (CSMTextSettingsTag,
+from core.core.swf.swf import Swf, GetElementId, SetElementId, GetShapeBitmapId, SetShapeBitmapId
+from core.core.ffdec.classes import (CSMTextSettingsTag,
                              DefineFontNameTag,
                              DefineFontAlignZonesTag,
                              DefineBitsLosslessTags,
@@ -42,7 +42,7 @@ from ..ffdec.classes import (CSMTextSettingsTag,
                              DefineSpriteTag,
                              PlaceObject2Tag,
                              PlaceObject3Tag)
-from ..notifications import NotificationType
+from core.notifications import NotificationType
 
 __all__ = ["BaseModClass", "ModSource", "ModClass"]
 

@@ -2,8 +2,8 @@ import multiprocessing
 import sys
 import os
 
-from ..commands import Environment
-from ..notifications import Notification
+from core.commands import Environment
+from core.notifications import Notification
 
 
 def run_server_process(recv_queue: multiprocessing.Queue, send_queue: multiprocessing.Queue):
@@ -22,8 +22,8 @@ def run_server_process(recv_queue: multiprocessing.Queue, send_queue: multiproce
     sys.stderr = log_file
 
     try:
-        from ..worker.dispatch import Dispatch
-        from ..worker.basedispatch import SetDispatchQueue
+        from core.core.worker.dispatch import Dispatch
+        from core.core.worker.basedispatch import SetDispatchQueue
 
         server_thread = Dispatch()
         SetDispatchQueue(recv_queue, send_queue)

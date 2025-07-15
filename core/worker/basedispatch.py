@@ -1,8 +1,8 @@
 import threading
 import multiprocessing
 
-from ..commands import Environment
-from ..notifications import Notification, NotificationType
+from core.commands import Environment
+from core.notifications import Notification, NotificationType
 
 
 _dispatchMap = {}

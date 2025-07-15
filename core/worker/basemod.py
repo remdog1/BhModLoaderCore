@@ -1,13 +1,13 @@
 import re
 import os
 from PIL import Image
-from ..swf.swf import Swf, GetElementId
-from ..worker.variables import CORE_VERSION
-from ..worker.gameswf import GetGameFileClass
-from ..worker.brawlhalla import BRAWLHALLA_PATH
-from ..worker.brawlhalla import BRAWLHALLA_VERSION
-from ..ffdec.classes import PlaceObject2Tag, DefineEditTextTag, CSMTextSettingsTag, MATRIX
-from ..utils.hash import HashFile
+from core.core.swf.swf import Swf, GetElementId
+from core.core.worker.variables import CORE_VERSION
+from core.core.worker.gameswf import GetGameFileClass
+from core.core.worker.brawlhalla import BRAWLHALLA_PATH
+from core.core.worker.brawlhalla import BRAWLHALLA_VERSION
+from core.core.ffdec.classes import PlaceObject2Tag, DefineEditTextTag, CSMTextSettingsTag, MATRIX
+from core.core.utils.hash import HashFile
 from .config import ModloaderCoreConfig
 
 TEMPLATE = '''
@@ -184,7 +184,7 @@ def InstallUIScreenSocialHubV1(bmlVersion):
     gameSwf.save()
     gameSwf.close()
 
-from ..utils.hash import HashFile
+from core.core.utils.hash import HashFile
 from .config import ModloaderCoreConfig
 
 def apply_loading_screen_overlay():
