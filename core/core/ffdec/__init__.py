@@ -21,7 +21,7 @@ if sys.platform.startswith("win"):
     except jpype._jvmfinder.JVMNotFoundException:
         pass
 
-    flashlibFolder = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "tools", "ffdec", "flashlib"))
+    flashlibFolder = os.path.join(os.getenv("APPDATA"), "JPEXS", "FFDec", "flashlib")
     flashlibFile = os.path.join(flashlibFolder, "playerglobal32_0.swc")
 
     if not os.path.exists(flashlibFile):

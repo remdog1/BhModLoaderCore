@@ -431,8 +431,9 @@ class Swf:
         return element
 
     def cloneAndAddElement(self, element, elId=None):
-        # :return: Clone element
-
+        """
+        :return: Clone element
+        """
         return self.addElement(element.cloneTag(), elId)
 
     def replaceElement(self, oldElement, newElement):

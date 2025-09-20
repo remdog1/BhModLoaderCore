@@ -63,12 +63,6 @@ class SymbolClass:
             if name_ == name:
                 return tag
 
-    def getTagName(self, tag: int) -> object:
-        """Get the name associated with a tag ID"""
-        if tag in self._tags:
-            return self._tags[tag]
-        return None
-
     def getTags(self):
         return self._tags.copy()
 
