@@ -3,6 +3,7 @@ import re
 import sys
 
 from .config import ModloaderCoreConfig
+from .variables import MODLOADER_CACHE_PATH
 
 from ..utils.hash import HashFile
 from ..ffdec.classes import ArrayList, Configuration, HighlightedTextWriter, ScriptExportMode
@@ -118,8 +119,15 @@ if BRAWLHALLA_PATH is not None:
     # Search brawlhalla files
     for path, _, files in os.walk(BRAWLHALLA_PATH):
         for file in files:
-            if file.endswith(".mp3") or file.endswith(".png") or file.endswith(".jpg"):
+            if file.endswith(".mp3") or file.endswith(".png") or file.endswith(".jpg") or file.endswith(".bnk") or file.endswith(".bin"):
                 BRAWLHALLA_FILES[file] = os.path.join(path, file)
+                # For diagnostics - log all detected language files to make troubleshooting easier
+                if file.startswith("language.") and file.endswith(".bin"):
+                    log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
+                    if not os.path.exists(log_dir):
+                        os.makedirs(log_dir, exist_ok=True)
+                    with open(os.path.join(log_dir, "detected_language_files.txt"), "a", encoding="utf-8") as log_file:
+                        log_file.write(f"Detected language file: {file} at {os.path.join(path, file)}\n")
 
     # Get brawlhalla version
     _bhAir = BRAWLHALLA_SWFS.get("BrawlhallaAir.swf", None)

@@ -139,9 +139,9 @@ class DataClass(metaclass=DataMetaclass):
             if varName in ignoredVars:
                 continue
 
-            var = getattr(self, varName)
-
-            data[varName] = var
+            if hasattr(self, varName):
+                var = getattr(self, varName)
+                data[varName] = var
 
         return data
 

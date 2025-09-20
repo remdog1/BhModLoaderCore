@@ -5,6 +5,7 @@ from .dataversion import DataClass, DataVariable
 from .variables import (DATA_FORMAT_MODLOADER_CORE, DATA_FORMAT_MODLOADER_VERSION,
                         MODLOADER_CACHE_PATH, MODLOADER_CACHE_CORE_FILE)
 from .vartypes import ModloaderCoreMods
+from typing import Dict
 
 
 class ModloaderCoreConfigClass(DataClass):
@@ -31,6 +32,9 @@ class ModloaderCoreConfigClass(DataClass):
 
     DataVariable(formatType, 1, "installedMods")
     installedMods: List[ModloaderCoreMods]
+
+    DataVariable(formatType, 2, "loadingScreenChecksums")
+    loadingScreenChecksums: Dict[str, str]
 
     def __init__(self):
         self.path = os.path.join(MODLOADER_CACHE_PATH, MODLOADER_CACHE_CORE_FILE)

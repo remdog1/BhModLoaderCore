@@ -1,4 +1,6 @@
+
 import os
+import traceback
 from typing import List, Union
 
 from .variables import (MODS_PATH,
@@ -9,6 +11,8 @@ from .variables import (MODS_PATH,
                         CheckExists)
 from .mod import ModClass, ModSource, ModsHashSumCache
 from .config import ModloaderCoreConfig
+from .basedispatch import SendNotification
+from ..notifications import NotificationType
 
 
 class ModLoaderClass:
@@ -58,7 +62,7 @@ class ModLoaderClass:
                             modsHashes.append(modClass.hash)
                             self.modsClasses.append(modClass)
                     except:
-                        pass
+                        traceback.print_exc()
 
         cacheHashes = ModsHashSumCache(self.modsCachePath)
         for modHash in cacheHashes.hashes.values():

@@ -103,6 +103,15 @@ class Dispatch(BaseDispatch):
 
         return False
 
+    @Index(Environment.DecompileMod)
+    def decompileMod(self, hash):
+        mod = ModLoader.getModByHash(hash)
+        if mod is not None:
+            threading.Thread(target=mod.decompile).start()
+            return True, hash
+
+        return False, None
+
     @Index(Environment.CreateMod)
     def createMod(self, folderName):
         modSource = ModLoader.createModSource(folderName)

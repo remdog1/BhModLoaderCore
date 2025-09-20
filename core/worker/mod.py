@@ -2,6 +2,8 @@ import os
 import re
 import shutil
 import threading
+import time
+import json
 from typing import List, Dict, Tuple, Union
 
 from .vartypes import ModDataSwfsTyped
@@ -16,12 +18,14 @@ from .variables import (MODS_PATH,
                         METADATA_CACHE_MOD_PREVIEWS_FOLDER,
                         METADATA_CACHE_MOD_FILE,
                         MODS_SOURCES_CACHE_FILE,
-                        MODS_SOURCES_CACHE_PREVIEW)
+                        MODS_SOURCES_CACHE_PREVIEW,
+                        MODLOADER_CACHE_PATH)
 from .dataversion import DataClass, DataVariable
 from .gameswf import GetGameFileClass
 from .gamefiles import GameFiles
 from .brawlhalla import BRAWLHALLA_SWFS, BRAWLHALLA_FILES, BRAWLHALLA_VERSION
 from .basedispatch import SendNotification
+from .bnkhandler import bnk_handler
 
 from ..utils.hash import RandomHash, HashFile
 
@@ -150,7 +154,7 @@ class ModSource(BaseModClass):
             self.saveModData()
 
     def saveModData(self):
-        if not self.hash:
+        if not hasattr(self, "hash") or not self.hash:
             self.hash = RandomHash()
 
         self.saveJsonFile(self.cachePath)
@@ -478,6 +482,7 @@ class ModClass(ModCache):
     def __init__(self, modsCachePath: str, modPath: str = None, modHash: str = None):
         self.modPath = modPath
         self.modsHashSumCache = ModsHashSumCache(modsCachePath)
+        self.as3files = {}  # Add default empty as3files dictionary
 
         SendNotification(NotificationType.LoadingMod, modPath)
 
@@ -653,12 +658,23 @@ class ModClass(ModCache):
         return list(conflictMods)
 
     def install(self, forceInstallation=False):
+        """Install a mod"""
         LOCK.acquire(True)
+        
+        # Create logs directory if needed
+        log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+            
+        # Log that we're installing this mod
+        with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
+            log_file.write(f"\n\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Installing mod: {self.name} (Hash: {self.hash})\n")
+            log_file.write(f"Files in mod: {list(self.files.items())}\n")
 
         SendNotification(NotificationType.ModElementsCount, self.hash, self.getElementsCount())
 
         self.open()
-
+        
         # Check conflict mods
         if not forceInstallation:
             conflictMods = self.getModConflict()
@@ -669,19 +685,137 @@ class ModClass(ModCache):
         else:
             pass
             #SendNotification(NotificationType.ForceInstallation, self.hash)
+        
+        # Indicates if the mod contains any language.bin files
+        has_language_bin = False
+        has_bnk_files = False
+        language_files_processed = []
+        bnk_files_processed = []
 
+        # Track language installation order
+        language_install_order_path = os.path.join(MODLOADER_CACHE_PATH, "language_install_order.json")
+        if os.path.exists(language_install_order_path):
+            with open(language_install_order_path, "r") as f:
+                language_install_order = json.load(f)
+        else:
+            language_install_order = []
+        
+        # Process files with progress tracking
+        total_files = len(self.files)
+        processed_files = 0
+        
         for elId, fileName in self.files.items():
+            # Update progress for file processing
+            processed_files += 1
+            SendNotification(NotificationType.InstallingModFile, self.hash, fileName)
+            
             fileElement = self.modSwf.getElementById(elId)
             if fileElement:
                 fileElement = fileElement[0]
             else:
-                #print(f"Error: Not found element '{[elId]}'", fileElement)
+                #print(f"Error: Not found element '{[elId]}', fileElement)
                 SendNotification(NotificationType.InstallingModNotFoundFileElement, self.hash, elId)
                 continue
 
-            GameFiles.installFile(fileName, self.modSwf.exportBinaryData(fileElement), self.hash)
-
+            # Add progress update before heavy operation
+            SendNotification(NotificationType.Debug, f"Processing file {processed_files}/{total_files}: {fileName}")
+            file_data = self.modSwf.exportBinaryData(fileElement)
+            
+            # Log file info
+            with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
+                log_file.write(f"Processing file: {fileName}, Size: {len(file_data)} bytes\n")
+            
+            # Check if this is a language file (.bin or .txt)
+            is_language_file = (fileName.startswith("language.") and fileName.endswith(".bin")) or fileName.endswith("_language.txt")
+            
+            if is_language_file:
+                SendNotification(NotificationType.Debug, f"Found language file: {fileName} in mod {self.hash}")
+                has_language_bin = True
+                language_files_processed.append(fileName)
+                
+                # Handle language file with specialized handler
+                from .langbin import lang_bin_handler
+                
+                # Create a debug message
+                SendNotification(NotificationType.Debug, f"Calling language handler for: {fileName}")
+                
+                # Save file to a temporary location with a unique name to avoid conflicts
+                import uuid
+                temp_id = str(uuid.uuid4())[:8]
+                temp_file_path = os.path.join(MODLOADER_CACHE_PATH, f"temp_{temp_id}_{fileName}")
+                
+                try:
+                    # Write the file data to the temporary file
+                    with open(temp_file_path, "wb") as tmp_file:
+                        tmp_file.write(file_data)
+                    
+                    # Process the language file and apply its changes
+                    try:
+                        # Add original file name as a parameter to help match the correct game file
+                        success = lang_bin_handler.apply_mod_language_changes(temp_file_path, self.hash, original_filename=fileName)
+                        
+                        if success:
+                            SendNotification(NotificationType.Success, f"Successfully applied language changes from {fileName}")
+                        else:
+                            SendNotification(NotificationType.Error, f"Failed to apply language changes from {fileName}")
+                    except Exception as e:
+                        SendNotification(NotificationType.Error, f"Error processing language file: {str(e)}")
+                except Exception as e:
+                    SendNotification(NotificationType.Error, f"Error saving temporary language file: {str(e)}")
+                
+                # Clean up the temporary file
+                if os.path.exists(temp_file_path):
+                    try:
+                        os.remove(temp_file_path)
+                    except Exception as e:
+                        with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
+                            log_file.write(f"Error removing temporary file: {str(e)}\n")
+            
+            # Check if this is a .bnk file
+            elif fileName.endswith(".bnk"):
+                has_bnk_files = True
+                bnk_files_processed.append(fileName)
+                
+                # Handle .bnk file with specialized handler
+                SendNotification(NotificationType.Debug, f"Found .bnk file in mod: {fileName}")
+                
+                # Save file to a temporary location
+                temp_file_path = os.path.join(MODLOADER_CACHE_PATH, f"temp_{fileName}")
+                try:
+                    # Write the binary data to the temporary file
+                    with open(temp_file_path, "wb") as tmp_file:
+                        tmp_file.write(file_data)
+                    
+                    # Process the .bnk file and apply its changes
+                    success = bnk_handler.apply_mod_changes(temp_file_path, self.hash, fileName)
+                    
+                    if success:
+                        SendNotification(NotificationType.Success, f"Successfully applied BNK changes from {fileName}")
+                    else:
+                        SendNotification(NotificationType.Error, f"Failed to apply BNK changes from {fileName}")
+                        
+                except Exception as e:
+                    SendNotification(NotificationType.Error, f"Error processing BNK file: {str(e)}")
+                    
+                # Clean up the temporary file
+                if os.path.exists(temp_file_path):
+                    try:
+                        os.remove(temp_file_path)
+                    except Exception as e:
+                        with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
+                            log_file.write(f"Error removing temporary BNK file: {str(e)}\n")
+            else:
+                # Regular file installation
+                GameFiles.installFile(fileName, file_data, self.hash)
+        
+        # Process SWF files with progress tracking
+        total_swfs = len(self.swfs)
+        processed_swfs = 0
+        
         for swfName, swfMap in self.swfs.items():
+            processed_swfs += 1
+            SendNotification(NotificationType.Debug, f"Processing SWF {processed_swfs}/{total_swfs}: {swfName}")
+            
             gameFile = GetGameFileClass(swfName)
             gameFile.open()
 
@@ -698,10 +832,16 @@ class ModClass(ModCache):
                 #print(f"Installing '{self.name}' in '{swfName}'")
                 SendNotification(NotificationType.InstallingModSwf, self.hash, swfName)
 
+            # Count total elements for progress tracking
+            total_elements = sum(len(elements) for elements in swfMap.values())
+            processed_elements = 0
+            
             for category, elements in swfMap.items():
                 if category == "scripts":
                     for scriptAnchor, content in elements.items():
+                        processed_elements += 1
                         SendNotification(NotificationType.InstallingModSwfScript, self.hash, scriptAnchor)
+                        SendNotification(NotificationType.Debug, f"Processing script {processed_elements}/{total_elements}: {scriptAnchor}")
 
                         success = gameFile.importScript(content, scriptAnchor, self.hash)
 
@@ -710,14 +850,25 @@ class ModClass(ModCache):
 
                 elif category == "sounds":
                     for soundAnchor in elements:
+                        processed_elements += 1
                         #print("Install Sound", soundAnchor)
                         SendNotification(NotificationType.InstallingModSwfSound, self.hash, soundAnchor)
+                        SendNotification(NotificationType.Debug, f"Processing sound {processed_elements}/{total_elements}: {soundAnchor}")
 
-                        soundId = self.modSwf.symbolClass.getTagByName(soundAnchor)
+                        try:
+                            soundId = self.modSwf.symbolClass.getTagByName(soundAnchor)
+                        except AttributeError:
+                            # Fallback if getTagByName doesn't work
+                            soundId = None
+                            for tag_id, name in self.modSwf.symbolClass.getTags().items():
+                                if name == soundAnchor:
+                                    soundId = tag_id
+                                    break
+                                    
                         if soundId is None:
                             #print(f"Error: Sound {soundAnchor} does not exist")
                             SendNotification(NotificationType.InstallingModSwfSoundSymbolclassNotExist,
-                                             self.hash, soundAnchor, swfName)
+                                            self.hash, soundAnchor, swfName)
                             continue
 
                         sound = self.modSwf.getElementById(soundId, DefineSoundTag)
@@ -726,43 +877,64 @@ class ModClass(ModCache):
                         else:
                             #print(f"Error: Sound {soundId} {soundAnchor} does not exist")
                             SendNotification(NotificationType.InstallingModSoundNotExist,
-                                             self.hash, soundAnchor, soundId, swfName)
+                                            self.hash, soundAnchor, soundId, swfName)
                             continue
 
                         gameFile.importSound(sound, soundAnchor, self.hash)
+
                 elif category == "sprites":
-                    elementsMap = {}
-                    for spriteAnchor in elements:
-                        #print("Install Sprite", spriteAnchor)
-                        SendNotification(NotificationType.InstallingModSwfSprite, self.hash, spriteAnchor)
-
-                        spriteId = self.modSwf.symbolClass.getTagByName(spriteAnchor)
+                    for sprite in elements:
+                        processed_elements += 1
+                        # Check if sprite is a string or dictionary
+                        sprite_name = sprite if isinstance(sprite, str) else sprite["name"]
+                        SendNotification(NotificationType.Debug, f"Processing sprite {processed_elements}/{total_elements}: {sprite_name}")
+                        
+                        try:
+                            spriteId = self.modSwf.symbolClass.getTagByName(sprite_name)
+                        except AttributeError:
+                            # Fallback if getTagByName doesn't work
+                            spriteId = None
+                            for tag_id, name in self.modSwf.symbolClass.getTags().items():
+                                if name == sprite_name:
+                                    spriteId = tag_id
+                                    break
+                                    
                         if spriteId is None:
-                            #print(f"Error: Sprite {spriteAnchor} does not exist")
+                            #print(f"Error: sprite {sprite['name']} does not exist")
                             SendNotification(NotificationType.InstallingModSwfSpriteSymbolclassNotExist,
-                                             self.hash, spriteAnchor, swfName)
+                                            self.hash, sprite_name, swfName)
                             continue
 
-                        sprite = self.modSwf.getElementById(spriteId, DefineSpriteTag)
-                        if sprite:
-                            sprite = sprite[0]
+                        spriteTag = self.modSwf.getElementById(spriteId, DefineSpriteTag)
+                        if spriteTag:
+                            spriteTag = spriteTag[0]
                         else:
-                            #print(f"Error: Sprite {spriteId} {spriteAnchor} does not exist")
+                            #print(f"Error: Sound {spriteId} {spriteTag['name']} does not exist")
                             SendNotification(NotificationType.InstallingModSpriteNotExist,
-                                             self.hash, spriteAnchor, spriteId, swfName)
+                                             self.hash, sprite_name, spriteId, swfName)
                             continue
 
-                        gameFile.importSprite(sprite, spriteAnchor, self.hash, elementsMap)
+                        gameFile.importSprite(spriteTag, sprite_name, self.hash)
 
             gameFile.addInstalledMod(self.hash)
-            #print(gameFile.getJson(formatJson=True))
             gameFile.save()
             gameFile.close()
 
-        SendNotification(NotificationType.InstallingModFinished, self.hash)
+        for fileName, asContent in self.as3files.items():
+            SendNotification(NotificationType.InstallingModAs3File, self.hash, fileName)
+        
+        # Check for language.bin files modified by this mod
+        # Log summary of language file handling
+        with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
+            log_file.write(f"Installation completed for mod: {self.name}\n")
+            log_file.write(f"Language files processed: {language_files_processed}\n")
+            log_file.write(f"Has language files: {has_language_bin}\n")
 
         self.installed = True
         self.saveCache()
+        
+        # Send completion notification after setting installed status
+        SendNotification(NotificationType.InstallingModFinished, self.hash)
 
         LOCK.release()
 
@@ -771,7 +943,71 @@ class ModClass(ModCache):
 
         SendNotification(NotificationType.ModElementsCount, self.hash, self.getElementsCount())
 
+        # Create log directory if it doesn't exist
+        log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
+
+        # Log uninstallation start
+        with open(os.path.join(log_dir, "mod_uninstallation.txt"), "a", encoding="utf-8") as log_file:
+            log_file.write(f"\n\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Uninstalling mod: {self.name} (Hash: {self.hash})\n")
+
+        # Count how many mods are currently installed
+        remaining_mods = 0
+        mods_cache_path = os.path.join(MODLOADER_CACHE_PATH, "Mods")
+        if os.path.exists(mods_cache_path):
+            for mod_hash_dir in os.listdir(mods_cache_path):
+                if mod_hash_dir == self.hash:
+                    continue
+                mod_cache_file = os.path.join(mods_cache_path, mod_hash_dir, "mod.json")
+                if os.path.exists(mod_cache_file):
+                    try:
+                        with open(mod_cache_file, "r") as f:
+                            mod_data = json.load(f)
+                            if mod_data.get("installed"):
+                                remaining_mods += 1
+                    except json.JSONDecodeError:
+                        continue
+        
+        with open(os.path.join(log_dir, "mod_uninstallation.txt"), "a", encoding="utf-8") as log_file:
+            log_file.write(f"Remaining mods after uninstallation: {remaining_mods}\n")
+
+        # Check for language.bin files modified by this mod
+        has_language_bin = False
+        has_bnk_files = False
+        for elId, fileName in self.files.items():
+            if fileName.startswith("language.") and fileName.endswith(".bin"):
+                has_language_bin = True
+            elif fileName.endswith(".bnk"):
+                has_bnk_files = True
+            if has_language_bin and has_bnk_files:
+                break
+
+        # Regular file uninstallation
         GameFiles.uninstallMod(self.hash)
+
+        # Handle language.bin files uninstallation
+        if has_language_bin:
+            from .langbin import lang_bin_handler
+            # Use the tracked changes to revert only this mod's changes
+            lang_bin_handler.uninstall_mod_language_changes(self.hash)
+            
+            # If this is the last mod, restore all original language files
+            if remaining_mods == 0:
+                with open(os.path.join(log_dir, "mod_uninstallation.txt"), "a", encoding="utf-8") as log_file:
+                    log_file.write("No mods remaining, forcing restore of all original language files\n")
+                lang_bin_handler.restore_all_original_files()
+                
+        # Handle .bnk files uninstallation
+        if has_bnk_files:
+            # Use the tracked changes to revert only this mod's changes
+            bnk_handler.uninstall_mod_changes(self.hash)
+            
+            # If this is the last mod, restore all original .bnk files
+            if remaining_mods == 0:
+                with open(os.path.join(log_dir, "mod_uninstallation.txt"), "a", encoding="utf-8") as log_file:
+                    log_file.write("No mods remaining, forcing restore of all original BNK files\n")
+                bnk_handler.restore_all_original_files()
 
         for swfName in self.swfs:
             gameFile = GetGameFileClass(swfName)
@@ -793,7 +1029,92 @@ class ModClass(ModCache):
         self.uninstall()
         self.install()
 
+    def decompile(self):
+        SendNotification(NotificationType.DecompilingMod, self.hash)
+
+        # Create ModSource
+        mod_source_path = os.path.join(MODS_SOURCES_PATH[0], self.name)
+        if os.path.exists(mod_source_path):
+            shutil.rmtree(mod_source_path)
+        os.mkdir(mod_source_path)
+
+        mod_source = ModSource(mod_source_path)
+        mod_source.gameVersion = self.gameVersion
+        mod_source.name = self.name
+        mod_source.author = self.author
+        mod_source.version = self.version
+        mod_source.description = self.description
+        mod_source.tags = self.tags
+        mod_source.saveModData()
+
+        # Extract Previews
+        preview_paths = self.getPreviewsPaths()
+        mod_source.setPreviewsPaths(preview_paths)
+
+        self.open()
+
+        # Extract Files
+        files_path = os.path.join(mod_source_path, "files")
+        if not os.path.exists(files_path):
+            os.mkdir(files_path)
+        for elId, file_name in self.files.items():
+            file_element = self.modSwf.getElementById(elId)
+            if file_element:
+                file_element = file_element[0]
+            else:
+                SendNotification(NotificationType.DecompilingModNotFoundFileElement, self.hash, elId)
+                continue
+
+            file_data = self.modSwf.exportBinaryData(file_element)
+            with open(os.path.join(files_path, file_name), "wb") as f:
+                f.write(file_data)
+
+
+        # Extract SWF data
+        for swf_name, swf_map in self.swfs.items():
+            swf_path = os.path.join(mod_source_path, swf_name)
+            if not os.path.exists(swf_path):
+                os.mkdir(swf_path)
+
+            for category, elements in swf_map.items():
+                category_path = os.path.join(swf_path, category)
+                if not os.path.exists(category_path):
+                    os.mkdir(category_path)
+
+                if category == "scripts":
+                    for script_anchor, content in elements.items():
+                        with open(os.path.join(category_path, f"{script_anchor}.as"), "w") as f:
+                            f.write(content)
+                elif category == "sounds":
+                    for sound_anchor in elements:
+                        sound_id = self.modSwf.symbolClass.getTagByName(sound_anchor)
+                        if sound_id is None:
+                            continue
+                        sound = self.modSwf.getElementById(sound_id, DefineSoundTag)
+                        if sound:
+                            sound = sound[0]
+                        else:
+                            continue
+                        
+                        sound_data = self.modSwf.exportBinaryData(sound)
+                        with open(os.path.join(category_path, f"{sound_id}_{sound_anchor}.wav"), "wb") as f:
+                            f.write(sound_data)
+
+        self.close()
+        SendNotification(NotificationType.DecompilingModFinished, self.hash)
+
     def delete(self):
         self.removeCache()
         if self.modPath:
             os.remove(self.modPath)
+
+    def getTagNameSafe(self, tag_id):
+        """Safely get tag name even if the method doesn't exist"""
+        try:
+            return self.modSwf.symbolClass.getTagName(tag_id)
+        except AttributeError:
+            # Fallback if getTagName doesn't exist
+            for id, name in self.modSwf.symbolClass.getTags().items():
+                if id == tag_id:
+                    return name
+            return None

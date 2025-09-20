@@ -33,14 +33,19 @@ MODLOADER_CACHE_MODS_FOLDER = "Mods"
 
 MODLOADER_CACHE_FOLDER = "BModloader"
 if sys.platform in ["win32", "win64"]:
-    MODLOADER_CACHE_PATH = os.path.join(os.getenv("APPDATA"), MODLOADER_CACHE_FOLDER)
+    appdata = os.getenv("APPDATA")
+    if appdata:
+        MODLOADER_CACHE_PATH = os.path.join(appdata, MODLOADER_CACHE_FOLDER)
+    else:
+        # Fallback to local directory if APPDATA environment variable is not available
+        MODLOADER_CACHE_PATH = os.path.join(os.getcwd(), "BModloaderCache")
 elif sys.platform == "darwin":
     MODLOADER_CACHE_PATH = os.path.join(os.getcwd(), "appconfig")
 else:
-    MODLOADER_CACHE_PATH = ""
+    MODLOADER_CACHE_PATH = os.path.join(os.getcwd(), "BModloaderCache")
 
 if not os.path.exists(MODLOADER_CACHE_PATH):
-    os.mkdir(MODLOADER_CACHE_PATH)
+    os.makedirs(MODLOADER_CACHE_PATH)
 
 
 def CheckExists(path, makeIfNotExists=False):
