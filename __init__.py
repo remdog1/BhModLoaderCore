@@ -1,1 +1,1 @@
-from .core import *
+# BhModLoaderCore - Core Library Of BrawlhallaModLoader Tooling
