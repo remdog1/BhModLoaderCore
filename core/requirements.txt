@@ -1,0 +1,3 @@
+jpype1
+pywin32
+psutil

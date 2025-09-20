@@ -58,6 +58,10 @@ class NotificationType(Enum):
     UninstallingModSwfSprite = auto()
     UninstallingModFinished = auto()
 
+    # Decompiling
+    DecompilingMod = auto()
+    DecompilingModFinished = auto()
+
     # Warnings
     InstallingModInFileAlreadyInstalled = auto()  # If mod already installed in file
 
@@ -77,6 +81,16 @@ class NotificationType(Enum):
 
     UninstallingModSwfOriginalElementNotFound = auto()
     UninstallingModSwfElementNotFound = auto()
+    
+    # Generic notification types for langbin.py
+    Debug = auto()
+    Error = auto()
+    Success = auto()
+    Warning = auto()
+    # Language handling notifications
+    LangBinBackup = auto()
+    LangBinApply = auto()
+    LangBinRestore = auto()
 
 
 

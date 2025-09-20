@@ -17,6 +17,7 @@ class Environment(Enum):
     UninstallMod = auto()
     DeleteMod = auto()
     ReinstallMod = auto()
+    DecompileMod = auto()
 
     CreateMod = auto()
     SetModName = auto()
