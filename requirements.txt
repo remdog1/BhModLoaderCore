@@ -5,5 +5,4 @@ psutil
 rarfile
 py7zr
 requests>=2.31.0
-wwiser
 Pillow
