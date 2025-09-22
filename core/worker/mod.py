@@ -391,12 +391,28 @@ class ModSource(BaseModClass):
             elif os.path.isdir(folderPath):
                 for path, folders, files in os.walk(folderPath):
                     for file in files:
-                        if file in BRAWLHALLA_FILES:
-                            #print("Import File", file)
-                            SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, file)
+                        # Calculate relative path from mod source root
+                        relative_path = os.path.relpath(os.path.join(path, file), self.modSourcesPath)
+                        # Normalize path separators for cross-platform compatibility
+                        relative_path = relative_path.replace("\\", "/")
+                        
+                        # Check if this file matches any Brawlhalla file (by relative path or filename)
+                        file_key = None
+                        if relative_path in BRAWLHALLA_FILES:
+                            file_key = relative_path
+                        else:
+                            # Fallback: check by filename only (legacy support)
+                            for brawlhalla_path in BRAWLHALLA_FILES.keys():
+                                if os.path.basename(brawlhalla_path) == file:
+                                    file_key = brawlhalla_path
+                                    break
+                        
+                        if file_key:
+                            #print("Import File", file_key)
+                            SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, file_key)
 
                             binaryTag = modSwf.importBinaryFile(os.path.join(path, file))
-                            self.files[GetElementId(binaryTag)] = file
+                            self.files[GetElementId(binaryTag)] = file_key
 
                         else:
                             #print("Error: Unknown file:", file)
