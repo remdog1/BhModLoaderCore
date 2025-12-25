@@ -209,11 +209,30 @@ class BnkHandler:
 
     def get_active_mods_for_file(self, target_file: str) -> Dict[str, Dict[str, bytes]]:
         """Get all active mods that have modified the target file
+        Only returns mods that are actually installed (verified via ModLoader)
         Returns: Dict[mod_hash -> Dict[wem_id -> wem_data]]"""
         active_mods = {}
+        # Import here to avoid circular imports
+        from .modloader import ModLoader
+        
         for mod_hash, mod_changes in self.mod_changes.items():
             if target_file in mod_changes:
-                active_mods[mod_hash] = mod_changes[target_file]
+                # Verify the mod is actually installed before including it
+                mod = ModLoader.getModByHash(mod_hash)
+                if mod is not None and mod.installed:
+                    active_mods[mod_hash] = mod_changes[target_file]
+                elif mod is None or not mod.installed:
+                    # Mod is not installed but still in mod_changes - clean it up
+                    # This handles cases where mod was uninstalled but mod_changes wasn't cleaned up
+                    log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
+                    with open(os.path.join(log_dir, "bnk_operations.log"), "a", encoding="utf-8") as log:
+                        log.write(f"⚠️ Found uninstalled mod {mod_hash} in mod_changes for {target_file} - cleaning up\n")
+                    # Remove this mod's changes from tracking since it's not installed
+                    if mod_hash in self.mod_changes and target_file in self.mod_changes[mod_hash]:
+                        del self.mod_changes[mod_hash][target_file]
+                        # If no more changes for this mod, remove the mod entirely
+                        if not self.mod_changes[mod_hash]:
+                            del self.mod_changes[mod_hash]
         return active_mods
 
     def compare_wem_files(self, file1_path: str, file2_path: str, chunk_size: int = 8192) -> bool:
@@ -251,6 +270,21 @@ class BnkHandler:
             log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
             if not os.path.exists(log_dir):
                 os.makedirs(log_dir)
+            
+            # Clean up any stale mod_changes entries for uninstalled mods before starting
+            from .modloader import ModLoader
+            stale_mods = []
+            for tracked_hash in list(self.mod_changes.keys()):
+                mod = ModLoader.getModByHash(tracked_hash)
+                if mod is None or not mod.installed:
+                    stale_mods.append(tracked_hash)
+            
+            if stale_mods:
+                with open(os.path.join(log_dir, "bnk_operations.log"), "a", encoding="utf-8") as log:
+                    log.write(f"\n⚠️ Cleaning up {len(stale_mods)} stale mod_changes entries for uninstalled mods\n")
+                for stale_hash in stale_mods:
+                    if stale_hash in self.mod_changes:
+                        del self.mod_changes[stale_hash]
                 
             # Open log file for this operation
             with open(os.path.join(log_dir, "bnk_operations.log"), "a", encoding="utf-8") as log:
@@ -341,13 +375,26 @@ class BnkHandler:
                         log.write("❌ Failed to verify mod WEM files\n")
                         return False
                     
-                    # Extract and analyze game file
-                    log.write("\nExtracting and analyzing game BNK file...\n")
+                    # Get all active mods for this file BEFORE extracting
+                    active_mods = self.get_active_mods_for_file(target_file)
+                    log.write(f"\nFound {len(active_mods)} active mods for {target_file}\n")
+                    
+                    # Extract from ORIGINAL backup BNK file, not the current game file
+                    # This ensures we start from a clean slate and apply all mods correctly
+                    original_bnk_path = self.original_bnks.get(target_file)
+                    if not original_bnk_path or not os.path.exists(original_bnk_path):
+                        # If no backup exists, use current game file and create backup
+                        original_bnk_path = BRAWLHALLA_FILES[target_file]
+                        log.write(f"⚠️ No original backup found, using current game file: {original_bnk_path}\n")
+                    else:
+                        log.write(f"✓ Using original backup BNK file: {original_bnk_path}\n")
+                    
+                    log.write("\nExtracting and analyzing original BNK file...\n")
                     result = subprocess.run(
                         [
                             self.wwiser_path,
                             "-unpack",
-                            "-filepath", BRAWLHALLA_FILES[target_file],
+                            "-filepath", original_bnk_path,
                             "-output", game_temp_dir,
                             "-verbose"
                         ],
@@ -357,13 +404,13 @@ class BnkHandler:
                     )
                     
                     if result.returncode != 0:
-                        log.write(f"❌ Failed to extract game BNK file:\n{result.stderr}\n")
-                        SendNotification(NotificationType.Error, f"Failed to extract game BNK file: {result.stderr}")
+                        log.write(f"❌ Failed to extract original BNK file:\n{result.stderr}\n")
+                        SendNotification(NotificationType.Error, f"Failed to extract original BNK file: {result.stderr}")
                         return False
                     
-                    # Extract WEM info from game file
+                    # Extract WEM info from original file
                     game_wem_info = self.extract_wem_info(result.stdout)
-                    log.write(f"Found {len(game_wem_info)} WEM files in game:\n")
+                    log.write(f"Found {len(game_wem_info)} WEM files in original BNK:\n")
                     
                     # Verify game WEM files and get actual filenames
                     game_id_to_filename = self.verify_wem_files(game_temp_dir, game_wem_info, log)
@@ -371,9 +418,15 @@ class BnkHandler:
                         log.write("❌ Failed to verify game WEM files\n")
                         return False
                     
-                    # Get all active mods for this file
-                    active_mods = self.get_active_mods_for_file(target_file)
-                    log.write(f"\nFound {len(active_mods)} active mods for {target_file}\n")
+                    # Backup original WEM files ONLY if not already backed up
+                    # This ensures we always have the true original, not a modified version
+                    log.write("\nBacking up original WEM files (if not already backed up)...\n")
+                    for wem_id, game_filename in game_id_to_filename.items():
+                        game_wem_path = os.path.join(game_temp_dir, game_filename)
+                        if os.path.exists(game_wem_path):
+                            with open(game_wem_path, 'rb') as f:
+                                original_wem_data = f.read()
+                                self.backup_original_wem(target_file, wem_id, original_wem_data)
                     
                     # Create a mapping of WEM IDs that are already modified by other mods
                     protected_wem_ids = set()
@@ -382,16 +435,25 @@ class BnkHandler:
                             protected_wem_ids.update(int(wem_id) for wem_id in other_mod_changes.keys())
                             log.write(f"Protected WEM IDs from mod {other_mod_hash}: {protected_wem_ids}\n")
                     
-                    # Before replacing WEM files, read and backup the original content
-                    for wem_id, game_filename in game_id_to_filename.items():
-                        game_wem_path = os.path.join(game_temp_dir, game_filename)
-                        if os.path.exists(game_wem_path):
-                            with open(game_wem_path, 'rb') as f:
-                                original_wem_data = f.read()
-                                self.backup_original_wem(target_file, wem_id, original_wem_data)
+                    # FIRST: Apply all OTHER active mods' changes to the extracted original
+                    # This builds up the correct state before applying the new mod
+                    log.write("\nApplying changes from other active mods to original BNK...\n")
+                    for other_mod_hash, other_mod_changes in active_mods.items():
+                        if other_mod_hash != mod_hash:
+                            for wem_id_str, wem_data in other_mod_changes.items():
+                                wem_id = int(wem_id_str)
+                                if wem_id in game_id_to_filename:
+                                    game_filename = game_id_to_filename[wem_id]
+                                    game_wem_path = os.path.join(game_temp_dir, game_filename)
+                                    
+                                    # Write the WEM data from the other mod
+                                    with open(game_wem_path, "wb") as f:
+                                        f.write(wem_data)
+                                    log.write(f"✓ Applied WEM ID {wem_id} from mod {other_mod_hash}\n")
                     
                     # Replace WEM files based on IDs, preserving other mods' changes
                     log.write("\nAnalyzing and replacing WEM files...\n")
+                    SendNotification(NotificationType.Debug, f"🔧 BNK: Analyzing and replacing WEM files in {target_file}")
                     replaced_count = 0
                     skipped_identical = 0
                     
@@ -440,6 +502,7 @@ class BnkHandler:
                             log.write(f"✓ Replaced WEM ID {wem_id}:\n")
                             log.write(f"  - From: {game_filename} ({game_size} bytes)\n")
                             log.write(f"  - To: {mod_filename} ({mod_size} bytes)\n")
+                            SendNotification(NotificationType.Debug, f"🔧 BNK: Replaced WEM ID {wem_id} in {target_file}")
                         else:
                             log.write(f"⚠️ Skipped WEM ID {wem_id} ({mod_filename}) - No matching ID in game file\n")
                     
@@ -448,33 +511,25 @@ class BnkHandler:
                     log.write(f"- Files replaced: {replaced_count}\n")
                     log.write(f"- Files skipped (identical): {skipped_identical}\n")
                     log.write(f"- Files protected by other mods: {len(protected_wem_ids)}\n")
-                    
-                    # Restore protected WEM files from other mods
-                    log.write("\nRestoring protected WEM files from other mods...\n")
-                    for other_mod_hash, other_mod_changes in active_mods.items():
-                        if other_mod_hash != mod_hash:
-                            for wem_id_str, wem_data in other_mod_changes.items():
-                                wem_id = int(wem_id_str)
-                                if wem_id in game_id_to_filename:
-                                    game_filename = game_id_to_filename[wem_id]
-                                    game_wem_path = os.path.join(game_temp_dir, game_filename)
-                                    
-                                    # Write the protected WEM data
-                                    with open(game_wem_path, "wb") as f:
-                                        f.write(wem_data)
-                                    log.write(f"✓ Restored protected WEM ID {wem_id} from mod {other_mod_hash}\n")
+                    SendNotification(NotificationType.Debug, f"🔧 BNK: WEM Summary - Replaced: {replaced_count}, Skipped: {skipped_identical}, Protected: {len(protected_wem_ids)}")
                     
                     log.write(f"\nReplaced {replaced_count} out of {len(game_wem_info)} WEM files\n")
+                    log.write("✓ All active mods' changes have been applied in correct order\n")
                     
                     # Rebuild the game BNK file
                     log.write("\nRebuilding game BNK file...\n")
                     temp_output = os.path.join(self.cache_dir, f"temp_{target_file}")
                     
+                    # Use original backup BNK as base for rebuilding, not the current game file
+                    # This ensures we're rebuilding from a clean state with all mods applied correctly
+                    rebuild_base_path = original_bnk_path
+                    log.write(f"Using original backup as rebuild base: {rebuild_base_path}\n")
+                    
                     result = subprocess.run(
                         [
                             self.wwiser_path,
                             "-replace",
-                            "-filepath", BRAWLHALLA_FILES[target_file],
+                            "-filepath", rebuild_base_path,
                             "-target", game_temp_dir,
                             "-output", temp_output,
                             "-verbose"
@@ -524,9 +579,9 @@ class BnkHandler:
                             # Update modification time
                             os.utime(BRAWLHALLA_FILES[target_file], None)
                             log.write("✓ Successfully applied mod changes\n")
-                            if self.get_active_mods_for_file(target_file):
-                                shutil.copy2(BRAWLHALLA_FILES[target_file], self.original_bnks[target_file])
-                                log.write("✓ Updated original backup to new BNK file for preservation of remaining mod changes\n")
+                            # NOTE: Do NOT update original_bnks - it must always remain as the true original game file
+                            # This ensures that when multiple mods modify the same BNK, we always extract from
+                            # the clean original and apply all mods' changes in the correct order
                             return True
                         else:
                             log.write("❌ Verification failed - wrong number of WEM files\n")
@@ -556,6 +611,12 @@ class BnkHandler:
             return False
             
     def uninstall_mod_changes(self, mod_hash: str) -> bool:
+        """
+        Uninstall BNK/WEM changes for a mod.
+        Follows the same pattern as language.bin handler:
+        1. Remove mod from tracking
+        2. Rebuild all affected files from original backup using remaining mods
+        """
         try:
             log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
             with open(os.path.join(log_dir, "bnk_operations.log"), "a", encoding="utf-8") as log:
@@ -566,19 +627,61 @@ class BnkHandler:
                     log.write("No BNK changes found for this mod\n")
                     return True
                 
-                # Process each modified file
+                # Get list of files affected by this mod BEFORE removing from tracking
+                affected_files = list(self.mod_changes[mod_hash].keys())
+                log.write(f"Mod affects {len(affected_files)} BNK file(s): {affected_files}\n")
+                
+                # Store the mod's changes before removing (for logging/verification)
+                mod_wem_changes_by_file = {}
                 for target_file, wem_changes in self.mod_changes[mod_hash].items():
-                    log.write(f"\nProcessing {target_file}...\n")
-                    log.write(f"Number of WEM changes to revert: {len(wem_changes)}\n")
+                    mod_wem_changes_by_file[target_file] = wem_changes
+                    log.write(f"  - {target_file}: {len(wem_changes)} WEM changes\n")
+                
+                # Remove mod from tracking FIRST (like language.bin handler does)
+                # This ensures consistent state even if rebuild fails partway through
+                del self.mod_changes[mod_hash]
+                log.write(f"✓ Removed mod {mod_hash} from mod_changes tracking\n")
+                
+                # Now rebuild all affected files from original backup using remaining mods
+                files_processed = 0
+                files_succeeded = 0
+                files_failed = 0
+                
+                for target_file in affected_files:
+                    files_processed += 1
+                    log.write(f"\nRebuilding {target_file} ({files_processed}/{len(affected_files)})...\n")
                     
-                    # Get all active mods for this file
-                    active_mods = self.get_active_mods_for_file(target_file)
-                    active_mods.pop(mod_hash, None)  # Remove current mod from active mods
-                    log.write(f"Found {len(active_mods)} other active mods for {target_file}\n")
+                    # Get all remaining mods that affect this file
+                    remaining_mods = {}
+                    for other_mod_hash, other_mod_changes in self.mod_changes.items():
+                        if target_file in other_mod_changes:
+                            remaining_mods[other_mod_hash] = other_mod_changes[target_file]
                     
-                    # Debug: Check which mods are active and their changes
-                    for other_hash, other_changes in active_mods.items():
-                        log.write(f"Mod {other_hash} has {len(other_changes)} WEM changes\n")
+                    # Get the WEM changes that were removed (for logging)
+                    removed_wem_changes = mod_wem_changes_by_file.get(target_file, {})
+                    
+                    # Get the WEM changes that were removed (for logging)
+                    removed_wem_changes = mod_wem_changes_by_file.get(target_file, {})
+                    
+                    log.write(f"Found {len(remaining_mods)} remaining mod(s) affecting {target_file}\n")
+                    for other_hash, other_changes in remaining_mods.items():
+                        log.write(f"  - Mod {other_hash}: {len(other_changes)} WEM changes\n")
+                    log.write(f"Removing {len(removed_wem_changes)} WEM changes from uninstalling mod\n")
+                    log.write(f"Removing {len(removed_wem_changes)} WEM changes from uninstalling mod\n")
+                    
+                    # Get the original backup BNK file path
+                    original_bnk_path = self.original_bnks.get(target_file)
+                    if not original_bnk_path or not os.path.exists(original_bnk_path):
+                        # If no backup exists, use current game file and create backup
+                        original_bnk_path = BRAWLHALLA_FILES[target_file]
+                        log.write(f"⚠️ No original backup found, using current game file: {original_bnk_path}\n")
+                        # Create backup now
+                        if not self.backup_original_file(target_file):
+                            log.write("❌ Failed to backup original file\n")
+                            continue
+                        original_bnk_path = self.original_bnks[target_file]
+                    else:
+                        log.write(f"✓ Using original backup BNK file: {original_bnk_path}\n")
                     
                     # Create temporary directories for extraction and modification
                     timestamp = int(time.time() * 1000)
@@ -593,13 +696,14 @@ class BnkHandler:
                         log.write(f"Created temporary directory: {temp_dir}\n")
                         log.write(f"Created debug directory: {debug_dir}\n")
                         
-                        # First, extract the current game BNK to get the structure
-                        log.write("\nExtracting current game BNK file...\n")
+                        # Extract from ORIGINAL backup BNK file, not the current game file
+                        # This ensures we start from a clean slate and apply only OTHER mods' changes
+                        log.write("\nExtracting original backup BNK file...\n")
                         result = subprocess.run(
                             [
                                 self.wwiser_path,
                                 "-unpack",
-                                "-filepath", BRAWLHALLA_FILES[target_file],
+                                "-filepath", original_bnk_path,
                                 "-output", temp_dir,
                                 "-verbose"
                             ],
@@ -609,92 +713,49 @@ class BnkHandler:
                         )
                         
                         if result.returncode != 0:
-                            log.write(f"❌ Failed to extract game BNK file\n")
+                            log.write(f"❌ Failed to extract original backup BNK file\n")
+                            log.write(f"Error: {result.stderr}\n")
+                            log.write(f"Output: {result.stdout}\n")
                             continue
                             
-                        # Get current WEM files info and verify
-                        current_wem_info = self.extract_wem_info(result.stdout)
-                        current_id_to_filename = self.verify_wem_files(temp_dir, current_wem_info, log)
+                        # Get WEM files info from original backup
+                        original_wem_info = self.extract_wem_info(result.stdout)
+                        id_to_filename = self.verify_wem_files(temp_dir, original_wem_info, log)
                         
-                        # Create a map of which mod owns each WEM file
-                        wem_ownership = {}  # wem_id -> (mod_hash, wem_data)
-                        for other_hash, other_changes in active_mods.items():
-                            for wem_id_str, wem_data in other_changes.items():
-                                wem_id = int(wem_id_str)
-                                wem_ownership[wem_id] = (other_hash, wem_data)
-                                log.write(f"WEM ID {wem_id} is owned by mod {other_hash}\n")
+                        if not id_to_filename:
+                            log.write("❌ Failed to verify WEM files from original backup\n")
+                            continue
+                        
+                        log.write(f"Found {len(id_to_filename)} WEM files in original backup\n")
                         
                         # Track changes made during uninstallation
                         changes_made = False
-                        restored_count = 0
-                        preserved_count = 0
+                        applied_count = 0
                         
-                        # First handle files owned by other mods
-                        log.write("\nPreserving WEM files owned by other mods...\n")
-                        for wem_id, (owner_hash, wem_data) in wem_ownership.items():
-                            if wem_id in current_id_to_filename:
-                                wem_filename = current_id_to_filename[wem_id]
-                                wem_path = os.path.join(temp_dir, wem_filename)
-                                debug_path = os.path.join(debug_dir, f"{wem_filename}.preserved")
-                                
-                                # Debug: Save the WEM data to debug directory
-                                with open(debug_path, 'wb') as f:
-                                    f.write(wem_data)
+                        # Apply all remaining mods' changes to the extracted original
+                        # Since we already removed the uninstalling mod from tracking, 
+                        # remaining_mods only contains mods that should stay
+                        log.write("\nApplying changes from remaining mods...\n")
+                        for other_mod_hash, other_mod_changes in remaining_mods.items():
+                            for wem_id_str, wem_data in other_mod_changes.items():
+                                wem_id = int(wem_id_str)
+                                if wem_id in id_to_filename:
+                                    wem_filename = id_to_filename[wem_id]
+                                    wem_path = os.path.join(temp_dir, wem_filename)
                                     
-                                # Write the WEM data from the owning mod
-                                with open(wem_path, 'wb') as f:
-                                    f.write(wem_data)
-                                    
-                                # Verify data was written correctly
-                                with open(wem_path, 'rb') as f:
-                                    written_data = f.read()
-                                    if written_data == wem_data:
-                                        log.write(f"✓ Verified WEM ID {wem_id} ({wem_filename}) data matches expected ({len(wem_data)} bytes)\n")
-                                    else:
-                                        log.write(f"❌ Data mismatch for WEM ID {wem_id} ({wem_filename})! Expected {len(wem_data)} bytes, got {len(written_data)} bytes\n")
-                                        
-                                log.write(f"✓ Preserved WEM ID {wem_id} ({wem_filename}) from mod {owner_hash}\n")
-                                preserved_count += 1
-                                changes_made = True
-                        
-                        # Then process each WEM file that needs to be reverted
-                        log.write("\nRestoring original WEM files...\n")
-                        for wem_id_str in wem_changes.keys():
-                            wem_id = int(wem_id_str)
-                            # Skip if this WEM is owned by another mod
-                            if wem_id in wem_ownership:
-                                log.write(f"Skipping WEM ID {wem_id} - Owned by another mod\n")
-                                continue
-                                
-                            if wem_id in current_id_to_filename:
-                                wem_filename = current_id_to_filename[wem_id]
-                                wem_path = os.path.join(temp_dir, wem_filename)
-                                debug_path = os.path.join(debug_dir, f"{wem_filename}.original")
-                                
-                                # No other mod owns this WEM, restore original
-                                if target_file in self.original_wems and wem_id in self.original_wems[target_file]:
-                                    original_data = self.original_wems[target_file][wem_id]
-                                    
-                                    # Debug: Save the original WEM data
-                                    with open(debug_path, 'wb') as f:
-                                        f.write(original_data)
-                                    
-                                    with open(wem_path, 'wb') as f:
-                                        f.write(original_data)
-                                        
-                                    # Verify data was written correctly
-                                    with open(wem_path, 'rb') as f:
-                                        written_data = f.read()
-                                        if written_data == original_data:
-                                            log.write(f"✓ Verified original data for WEM ID {wem_id} ({wem_filename}) matches expected ({len(original_data)} bytes)\n")
-                                        else:
-                                            log.write(f"❌ Data mismatch for original WEM ID {wem_id} ({wem_filename})! Expected {len(original_data)} bytes, got {len(written_data)} bytes\n")
-                                    
-                                    restored_count += 1
+                                    # Write the WEM data from the remaining mod
+                                    with open(wem_path, "wb") as f:
+                                        f.write(wem_data)
+                                    log.write(f"✓ Applied WEM ID {wem_id} from mod {other_mod_hash}\n")
+                                    applied_count += 1
                                     changes_made = True
-                                    log.write(f"✓ Restored original WEM ID {wem_id} ({wem_filename})\n")
-                                else:
-                                    log.write(f"⚠️ No original backup found for WEM ID {wem_id}\n")
+                        
+                        log.write(f"\nUninstallation Summary:\n")
+                        log.write(f"- Total WEM files in original: {len(id_to_filename)}\n")
+                        if len(remaining_mods) > 0:
+                            log.write(f"- Applied {applied_count} WEM files from {len(remaining_mods)} remaining mod(s)\n")
+                        else:
+                            log.write(f"- No remaining mods - restoring to original state\n")
                         
                         # Save a copy of the directory for debugging
                         log.write("\nSaving directory contents for verification...\n")
@@ -708,19 +769,25 @@ class BnkHandler:
                                 except Exception as e:
                                     log.write(f"Failed to copy {filename}: {str(e)}\n")
                         
-                        if changes_made:
+                        # Always rebuild to ensure BNK is in correct state
+                        # If no remaining mods, this will restore to original
+                        if len(remaining_mods) > 0 or applied_count > 0:
                             log.write(f"\nRebuilding {target_file}:\n")
-                            log.write(f"- Restored {restored_count} original WEM files\n")
-                            log.write(f"- Preserved {preserved_count} WEM files from other mods\n")
+                            if changes_made:
+                                log.write(f"- Applied {applied_count} WEM files from other mods\n")
+                            else:
+                                log.write(f"- No other active mods - restoring to original state\n")
+                            log.write(f"- Excluded {len(removed_wem_changes)} WEM files from uninstalling mod\n")
                             
                             # Create a temporary output file
                             temp_output = os.path.join(self.cache_dir, f"temp_uninstall_{target_file}")
                             
-                            # Use the current game BNK as the base
+                            # Use the ORIGINAL backup as the base for rebuilding
+                            # This ensures we're rebuilding from a clean state with only OTHER mods applied
                             rebuild_cmd = [
                                 self.wwiser_path,
                                 "-replace",
-                                "-filepath", BRAWLHALLA_FILES[target_file],  # Use current game file as base
+                                "-filepath", original_bnk_path,  # Use original backup as base
                                 "-target", temp_dir,
                                 "-output", temp_output,
                                 "-verbose"
@@ -745,13 +812,16 @@ class BnkHandler:
                                         "-verbose"
                                     ],
                                     capture_output=True,
-                                    text=True
+                                    text=True,
+                                    creationflags=subprocess.CREATE_NO_WINDOW
                                 )
                                 
                                 if verify_result.returncode == 0:
                                     rebuilt_wem_info = self.extract_wem_info(verify_result.stdout)
+                                    rebuilt_id_to_filename = self.verify_wem_files(verify_temp_dir, rebuilt_wem_info, log)
+                                    
                                     log.write(f"\nVerification Results:\n")
-                                    log.write(f"- Original WEM count: {len(current_wem_info)}\n")
+                                    log.write(f"- Original backup WEM count: {len(original_wem_info)}\n")
                                     log.write(f"- Rebuilt WEM count: {len(rebuilt_wem_info)}\n")
                                     
                                     # Copy the rebuilt BNK for debugging
@@ -772,10 +842,12 @@ class BnkHandler:
                                     
                                     # Verify content of WEM files in rebuilt BNK
                                     verification_passed = True
-                                    for wem_id_str in wem_changes.keys():
+                                    
+                                    # Check that WEM files from uninstalling mod are restored to original (or from another mod)
+                                    for wem_id_str in list(removed_wem_changes.keys()):
                                         wem_id = int(wem_id_str)
-                                        if wem_id in current_id_to_filename:
-                                            wem_filename = current_id_to_filename[wem_id]
+                                        if wem_id in rebuilt_id_to_filename:
+                                            wem_filename = rebuilt_id_to_filename[wem_id]
                                             rebuilt_wem_path = os.path.join(verify_temp_dir, wem_filename)
                                             
                                             if not os.path.exists(rebuilt_wem_path):
@@ -783,41 +855,89 @@ class BnkHandler:
                                                 verification_passed = False
                                                 continue
                                             
-                                            # Verify content based on whether it should be original or from another mod
-                                            if wem_id in wem_ownership:
-                                                owner_hash, expected_data = wem_ownership[wem_id]
-                                                with open(rebuilt_wem_path, 'rb') as f:
-                                                    actual_data = f.read()
-                                                if len(actual_data) != len(expected_data):
-                                                    log.write(f"❌ WEM file {wem_filename} size mismatch: expected {len(expected_data)} bytes, got {len(actual_data)} bytes\n")
-                                                    verification_passed = False
-                                            else:
-                                                # Should be original content
-                                                if wem_id in self.original_wems[target_file]:
+                                            # Check if another mod owns this WEM ID
+                                            found_owner = False
+                                            for other_mod_hash, other_mod_changes in remaining_mods.items():
+                                                if wem_id_str in other_mod_changes:
+                                                    # Another mod owns this WEM, verify it matches
+                                                    expected_data = other_mod_changes[wem_id_str]
                                                     with open(rebuilt_wem_path, 'rb') as f:
                                                         actual_data = f.read()
-                                                    if len(actual_data) != len(self.original_wems[target_file][wem_id]):
-                                                        log.write(f"❌ WEM file {wem_filename} size mismatch: expected {len(self.original_wems[target_file][wem_id])} bytes, got {len(actual_data)} bytes\n")
+                                                    if actual_data != expected_data:
+                                                        log.write(f"❌ WEM file {wem_filename} (ID {wem_id}) doesn't match mod {other_mod_hash}'s version\n")
                                                         verification_passed = False
+                                                    else:
+                                                        log.write(f"✓ Verified WEM ID {wem_id} matches mod {other_mod_hash}'s version\n")
+                                                    found_owner = True
+                                                    break
+                                            
+                                            # If no other mod owns it, should be original
+                                            if not found_owner:
+                                                if target_file in self.original_wems and wem_id in self.original_wems[target_file]:
+                                                    expected_data = self.original_wems[target_file][wem_id]
+                                                    with open(rebuilt_wem_path, 'rb') as f:
+                                                        actual_data = f.read()
+                                                    if actual_data != expected_data:
+                                                        log.write(f"❌ WEM file {wem_filename} (ID {wem_id}) doesn't match original\n")
+                                                        verification_passed = False
+                                                    else:
+                                                        log.write(f"✓ Verified WEM ID {wem_id} restored to original\n")
+                                                else:
+                                                    log.write(f"⚠️ WEM ID {wem_id} not found in original backup - may be new\n")
+                                    
+                                    # Verify that remaining mods' WEM files are still present
+                                    for other_mod_hash, other_mod_changes in remaining_mods.items():
+                                        for wem_id_str, expected_data in other_mod_changes.items():
+                                                wem_id = int(wem_id_str)
+                                                if wem_id in rebuilt_id_to_filename:
+                                                    wem_filename = rebuilt_id_to_filename[wem_id]
+                                                    rebuilt_wem_path = os.path.join(verify_temp_dir, wem_filename)
+                                                    
+                                                    if os.path.exists(rebuilt_wem_path):
+                                                        with open(rebuilt_wem_path, 'rb') as f:
+                                                            actual_data = f.read()
+                                                        if actual_data != expected_data:
+                                                            log.write(f"❌ WEM file {wem_filename} (ID {wem_id}) from mod {other_mod_hash} doesn't match\n")
+                                                            verification_passed = False
+                                                        else:
+                                                            log.write(f"✓ Verified WEM ID {wem_id} from mod {other_mod_hash} is preserved\n")
                                     
                                     # Apply changes if verification passes
-                                    if verification_passed and len(rebuilt_wem_info) == len(current_wem_info):
+                                    if verification_passed and len(rebuilt_wem_info) == len(original_wem_info):
                                         shutil.copy2(temp_output, BRAWLHALLA_FILES[target_file])
                                         os.utime(BRAWLHALLA_FILES[target_file], None)  # Update modification time
                                         log.write(f"✓ Successfully updated {target_file}\n")
-                                        if self.get_active_mods_for_file(target_file):
-                                            shutil.copy2(BRAWLHALLA_FILES[target_file], self.original_bnks[target_file])
-                                            log.write("✓ Updated original backup to new BNK file for preservation of remaining mod changes\n")
+                                        log.write(f"✓ Uninstalled mod {mod_hash} - removed {len(removed_wem_changes)} WEM changes\n")
+                                        files_succeeded += 1
+                                        # NOTE: Do NOT update original_bnks - it must always remain as the true original game file
+                                        # This ensures that when multiple mods modify the same BNK, we always extract from
+                                        # the clean original and apply all mods' changes in the correct order
                                     else:
+                                        files_failed += 1
                                         log.write("❌ Verification failed - content mismatch or wrong WEM count\n")
                                         log.write(f"Debug directory with all files: {debug_dir}\n")
                                         log.write("Keeping current game file state due to verification failure\n")
                                 else:
+                                    files_failed += 1
                                     log.write("❌ Verification failed - extraction error\n")
                             else:
+                                files_failed += 1
                                 log.write(f"❌ Failed to rebuild BNK file\n")
+                                if result.stderr:
+                                    log.write(f"Rebuild error: {result.stderr}\n")
+                                if result.stdout:
+                                    log.write(f"Rebuild output: {result.stdout}\n")
                         else:
                             log.write("ℹ️ No changes needed for this file\n")
+                    
+                    except Exception as e:
+                        files_failed += 1
+                        error_msg = f"Exception processing {target_file}: {str(e)}"
+                        log.write(f"❌ {error_msg}\n")
+                        SendNotification(NotificationType.Error, error_msg)
+                        import traceback
+                        log.write(f"Traceback: {traceback.format_exc()}\n")
+                        continue
                             
                     finally:
                         # Keep debug directory for analysis but clean up other temps
@@ -835,9 +955,21 @@ class BnkHandler:
                             except Exception as e:
                                 log.write(f"Warning: Failed to clean up temp output: {str(e)}\n")
                 
-                # Remove this mod's changes from tracking
-                del self.mod_changes[mod_hash]
-                log.write("\n✅ BNK uninstallation completed successfully\n")
+                # Log summary
+                log.write(f"\n=== Uninstallation Summary ===\n")
+                log.write(f"Files processed: {files_processed}\n")
+                log.write(f"Files succeeded: {files_succeeded}\n")
+                log.write(f"Files failed: {files_failed}\n")
+                
+                # Note: mod was already removed from tracking at the start
+                # This ensures consistent state even if rebuild fails partway through
+                
+                if files_failed > 0:
+                    log.write(f"\n⚠️ BNK uninstallation completed with {files_failed} file(s) failed\n")
+                    return False
+                else:
+                    log.write("\n✅ BNK uninstallation completed successfully\n")
+                    return True
                 
             return True
             
@@ -860,6 +992,306 @@ class BnkHandler:
             return True
         except Exception as e:
             SendNotification(NotificationType.Error, f"Error restoring original BNK files: {str(e)}")
+            return False
+
+    def apply_wem_file(self, mod_wem_path: str, mod_hash: str, target_file: str) -> bool:
+        """Apply changes from a standalone .wem file to the target game file"""
+        try:
+            # Create logs directory if it doesn't exist
+            log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            # Clean up any stale mod_changes entries for uninstalled mods before starting
+            from .modloader import ModLoader
+            stale_mods = []
+            for tracked_hash in list(self.mod_changes.keys()):
+                mod = ModLoader.getModByHash(tracked_hash)
+                if mod is None or not mod.installed:
+                    stale_mods.append(tracked_hash)
+            
+            if stale_mods:
+                with open(os.path.join(log_dir, "wem_operations.log"), "a", encoding="utf-8") as log:
+                    log.write(f"\n⚠️ Cleaning up {len(stale_mods)} stale mod_changes entries for uninstalled mods\n")
+                for stale_hash in stale_mods:
+                    if stale_hash in self.mod_changes:
+                        del self.mod_changes[stale_hash]
+                
+            # Open log file for this operation
+            with open(os.path.join(log_dir, "wem_operations.log"), "a", encoding="utf-8") as log:
+                log.write(f"\n=== WEM Mod Installation {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                log.write(f"Mod WEM File: {mod_wem_path}\n")
+                log.write(f"Target Game File: {BRAWLHALLA_FILES[target_file]}\n")
+                log.write(f"Mod Hash: {mod_hash}\n\n")
+                
+                # Verify mod file exists and is readable
+                if not os.path.exists(mod_wem_path):
+                    log.write(f"❌ Mod WEM file does not exist: {mod_wem_path}\n")
+                    return False
+                    
+                try:
+                    mod_size = os.path.getsize(mod_wem_path)
+                    log.write(f"Mod WEM file size: {mod_size} bytes\n")
+                except Exception as e:
+                    log.write(f"❌ Cannot access mod WEM file: {str(e)}\n")
+                    return False
+                
+                # Ensure wwiseutil tool is available
+                if not os.path.exists(self.wwiser_path):
+                    if not self.download_wwiser():
+                        log.write("❌ Failed to download wwiseutil tool\n")
+                        return False
+                        
+                # Backup original first
+                if not self.backup_original_file(target_file):
+                    log.write("❌ Failed to backup original file\n")
+                    return False
+                    
+                # Create unique temporary directories with sanitized names
+                timestamp = int(time.time() * 1000)
+                safe_target = "".join(c for c in target_file if c.isalnum() or c in "._-")
+                mod_temp_dir = os.path.join(self.cache_dir, f"wem_mod_{timestamp}_{safe_target}")
+                game_temp_dir = os.path.join(self.cache_dir, f"wem_game_{timestamp}_{safe_target}")
+                
+                log.write(f"Using temporary directories:\n")
+                log.write(f"Mod temp dir: {mod_temp_dir}\n")
+                log.write(f"Game temp dir: {game_temp_dir}\n\n")
+                
+                try:
+                    # Clean up old directories if they exist
+                    for temp_dir in [mod_temp_dir, game_temp_dir]:
+                        if os.path.exists(temp_dir):
+                            shutil.rmtree(temp_dir)
+                    
+                    # Create temporary directories
+                    os.makedirs(mod_temp_dir, exist_ok=True)
+                    os.makedirs(game_temp_dir, exist_ok=True)
+                    
+                    # Copy mod WEM file to temp directory
+                    mod_wem_filename = os.path.basename(mod_wem_path)
+                    temp_mod_wem_path = os.path.join(mod_temp_dir, mod_wem_filename)
+                    shutil.copy2(mod_wem_path, temp_mod_wem_path)
+                    
+                    # Find matching WEM ID for the mod file
+                    # Try to extract WEM ID from filename (e.g., "001.wem" -> ID 1)
+                    mod_wem_id = None
+                    try:
+                        # Remove .wem extension and convert to int
+                        base_name = mod_wem_filename[:-4]  # Remove .wem
+                        mod_wem_id = int(base_name)
+                    except ValueError:
+                        log.write(f"❌ Cannot extract WEM ID from filename: {mod_wem_filename}\n")
+                        return False
+                    
+                    # Get all active mods for this file BEFORE extracting
+                    active_mods = self.get_active_mods_for_file(target_file)
+                    log.write(f"\nFound {len(active_mods)} active mods for {target_file}\n")
+                    
+                    # Create a mapping of WEM IDs that are already modified by other mods
+                    protected_wem_ids = set()
+                    for other_mod_hash, other_changes in active_mods.items():
+                        if other_mod_hash != mod_hash:
+                            protected_wem_ids.update(int(wem_id) for wem_id in other_changes.keys())
+                            log.write(f"Protected WEM IDs from mod {other_mod_hash}: {protected_wem_ids}\n")
+                    
+                    # Check if this WEM ID is protected by another mod
+                    if mod_wem_id in protected_wem_ids:
+                        log.write(f"⚠️ Skipping WEM ID {mod_wem_id} - Protected by another mod\n")
+                        return True  # Not an error, just skipped
+                    
+                    # Extract from ORIGINAL backup BNK file, not the current game file
+                    # This ensures we start from a clean slate and apply all mods correctly
+                    original_bnk_path = self.original_bnks.get(target_file)
+                    if not original_bnk_path or not os.path.exists(original_bnk_path):
+                        # If no backup exists, use current game file and create backup
+                        original_bnk_path = BRAWLHALLA_FILES[target_file]
+                        log.write(f"⚠️ No original backup found, using current game file: {original_bnk_path}\n")
+                    else:
+                        log.write(f"✓ Using original backup BNK file: {original_bnk_path}\n")
+                    
+                    # Extract original BNK to temp directory
+                    extract_cmd = [
+                        self.wwiser_path,
+                        "-unpack",
+                        "-filepath", original_bnk_path,
+                        "-output", game_temp_dir,
+                        "-verbose"
+                    ]
+                    
+                    log.write(f"Extracting original BNK file...\n")
+                    log.write(f"Command: {' '.join(extract_cmd)}\n")
+                    
+                    result = subprocess.run(extract_cmd, capture_output=True, text=True, timeout=300, creationflags=subprocess.CREATE_NO_WINDOW)
+                    
+                    if result.returncode != 0:
+                        log.write(f"❌ Failed to extract original BNK file\n")
+                        log.write(f"Error: {result.stderr}\n")
+                        return False
+                    
+                    # Extract WEM info from original file
+                    game_wem_info = self.extract_wem_info(result.stdout)
+                    log.write(f"Found {len(game_wem_info)} WEM files in original BNK:\n")
+                    
+                    # Verify game WEM files and get actual filenames
+                    game_id_to_filename = self.verify_wem_files(game_temp_dir, game_wem_info, log)
+                    
+                    if not game_id_to_filename:
+                        log.write("❌ Failed to verify game WEM files\n")
+                        return False
+                    
+                    # Check if this WEM ID exists in the game file
+                    if mod_wem_id not in game_id_to_filename:
+                        log.write(f"❌ WEM ID {mod_wem_id} not found in game file\n")
+                        return False
+                    
+                    # Backup original WEM data ONLY if not already backed up
+                    game_filename = game_id_to_filename[mod_wem_id]
+                    game_wem_path = os.path.join(game_temp_dir, game_filename)
+                    
+                    if os.path.exists(game_wem_path):
+                        with open(game_wem_path, 'rb') as f:
+                            original_wem_data = f.read()
+                            self.backup_original_wem(target_file, mod_wem_id, original_wem_data)
+                    
+                    # FIRST: Apply all OTHER active mods' changes to the extracted original
+                    # This builds up the correct state before applying the new mod
+                    log.write("\nApplying changes from other active mods to original BNK...\n")
+                    for other_mod_hash, other_mod_changes in active_mods.items():
+                        if other_mod_hash != mod_hash:
+                            for wem_id_str, wem_data in other_mod_changes.items():
+                                wem_id = int(wem_id_str)
+                                if wem_id in game_id_to_filename:
+                                    game_filename = game_id_to_filename[wem_id]
+                                    game_wem_path = os.path.join(game_temp_dir, game_filename)
+                                    
+                                    # Write the WEM data from the other mod
+                                    with open(game_wem_path, "wb") as f:
+                                        f.write(wem_data)
+                                    log.write(f"✓ Applied WEM ID {wem_id} from mod {other_mod_hash}\n")
+                    
+                    # Replace the WEM file
+                    log.write(f"\nReplacing WEM ID {mod_wem_id}...\n")
+                    
+                    # Copy mod WEM file to replace game WEM file
+                    shutil.copy2(temp_mod_wem_path, game_wem_path)
+                    
+                    # Read the WEM data for tracking
+                    with open(temp_mod_wem_path, "rb") as f:
+                        wem_data = f.read()
+                    
+                    # Track this change
+                    if mod_hash not in self.mod_changes:
+                        self.mod_changes[mod_hash] = {}
+                    if target_file not in self.mod_changes[mod_hash]:
+                        self.mod_changes[mod_hash][target_file] = {}
+                    
+                    self.mod_changes[mod_hash][target_file][str(mod_wem_id)] = wem_data
+                    
+                    # Rebuild the BNK file
+                    log.write(f"\nRebuilding BNK file...\n")
+                    game_bnk_path = BRAWLHALLA_FILES[target_file]
+                    temp_output = os.path.join(self.cache_dir, f"temp_wem_{target_file}")
+                    
+                    rebuild_cmd = [
+                        self.wwiser_path,
+                        "-replace",
+                        "-filepath", original_bnk_path,  # Use original as base
+                        "-target", game_temp_dir,
+                        "-output", temp_output,
+                        "-verbose"
+                    ]
+                    
+                    log.write(f"Command: {' '.join(rebuild_cmd)}\n")
+                    
+                    rebuild_result = subprocess.run(rebuild_cmd, capture_output=True, text=True, timeout=300, creationflags=subprocess.CREATE_NO_WINDOW)
+                    
+                    if rebuild_result.returncode != 0:
+                        log.write(f"❌ Failed to rebuild BNK file\n")
+                        log.write(f"Error: {rebuild_result.stderr}\n")
+                        return False
+                    
+                    # Verify the rebuilt file
+                    verify_temp_dir = os.path.join(self.cache_dir, "verify_temp")
+                    if os.path.exists(verify_temp_dir):
+                        shutil.rmtree(verify_temp_dir)
+                    os.makedirs(verify_temp_dir)
+                    
+                    verify_cmd = [
+                        self.wwiser_path,
+                        "-unpack",
+                        "-filepath", temp_output,
+                        "-output", verify_temp_dir,
+                        "-verbose"
+                    ]
+                    
+                    verify_result = subprocess.run(verify_cmd, capture_output=True, text=True, timeout=300, creationflags=subprocess.CREATE_NO_WINDOW)
+                    
+                    if verify_result.returncode == 0:
+                        rebuilt_wem_info = self.extract_wem_info(verify_result.stdout)
+                        log.write(f"\nVerification of rebuilt BNK file:\n")
+                        log.write(f"Found {len(rebuilt_wem_info)} WEM files\n")
+                        
+                        # Only verify the number of WEM files matches
+                        if len(rebuilt_wem_info) == len(game_wem_info):
+                            shutil.copy2(temp_output, game_bnk_path)
+                            os.utime(game_bnk_path, None)  # Update modification time
+                            log.write("✓ Successfully replaced game BNK file\n")
+                            
+                            # NOTE: Do NOT update original_bnks - it must always remain as the true original game file
+                            # This ensures that when multiple mods modify the same BNK, we always extract from
+                            # the clean original and apply all mods' changes in the correct order
+                            
+                            log.write(f"\n✓ Successfully replaced WEM ID {mod_wem_id} in {target_file}\n")
+                            log.write(f"- Mod WEM file: {mod_wem_filename}\n")
+                            log.write(f"- Game WEM file: {game_filename}\n")
+                            log.write(f"- WEM ID: {mod_wem_id}\n")
+                            
+                            return True
+                        else:
+                            log.write("❌ Verification failed - wrong number of WEM files\n")
+                            # Restore from backup if verification fails
+                            if target_file in self.original_bnks:
+                                shutil.copy2(self.original_bnks[target_file], game_bnk_path)
+                                log.write("✓ Restored from backup\n")
+                            SendNotification(NotificationType.Warning, "BNK file verification failed - restored original file")
+                            return False
+                    else:
+                        log.write(f"❌ Verification failed - extraction error\n")
+                        # Restore from backup if verification fails
+                        if target_file in self.original_bnks:
+                            shutil.copy2(self.original_bnks[target_file], game_bnk_path)
+                            log.write("✓ Restored from backup\n")
+                        SendNotification(NotificationType.Warning, "BNK file verification failed - restored original file")
+                        return False
+                    
+                finally:
+                    # Clean up temporary directories
+                    for temp_dir in [mod_temp_dir, game_temp_dir]:
+                        if os.path.exists(temp_dir):
+                            try:
+                                shutil.rmtree(temp_dir)
+                                log.write(f"Cleaned up temp directory: {temp_dir}\n")
+                            except Exception as e:
+                                log.write(f"Warning: Could not clean up {temp_dir}: {str(e)}\n")
+                    
+                    # Clean up verification directory
+                    verify_temp_dir = os.path.join(self.cache_dir, "verify_temp")
+                    if os.path.exists(verify_temp_dir):
+                        try:
+                            shutil.rmtree(verify_temp_dir)
+                        except Exception:
+                            pass
+                    
+                    # Clean up temp output file
+                    if 'temp_output' in locals() and os.path.exists(temp_output):
+                        try:
+                            os.remove(temp_output)
+                            log.write(f"Cleaned up temp output file\n")
+                        except Exception as e:
+                            log.write(f"Warning: Could not clean up temp output: {str(e)}\n")
+                            
+        except Exception as e:
+            SendNotification(NotificationType.Error, f"Error processing WEM file: {str(e)}")
             return False
 
 # Global instance

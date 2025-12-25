@@ -86,8 +86,21 @@ class Dispatch(BaseDispatch):
     def deleteMod(self, hash):
         mod = ModLoader.getModByHash(hash)
         if mod is not None:
-            ModLoader.modsClasses.remove(mod)
-            mod.delete()
+            try:
+                # Try to delete the mod file and cache
+                mod.delete()
+            except Exception as e:
+                # Even if file deletion fails (e.g., file already manually removed),
+                # we still want to remove it from the mod loader's list
+                print(f"Warning: Error during mod deletion, but continuing to remove from list: {e}")
+            
+            # Always remove from mod loader's list, even if file deletion had issues
+            try:
+                ModLoader.modsClasses.remove(mod)
+            except ValueError:
+                # Mod might already be removed, that's okay
+                pass
+            
             del mod
             # mod.uninstall()
             return True, hash

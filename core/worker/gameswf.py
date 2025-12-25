@@ -84,24 +84,57 @@ class GameSwf(GameSwfData):
         if modHash not in self.installed:
             self.installed.append(modHash)
 
-    def importScript(self, content: str, scriptAnchor: str, modHash: str):
-        # Clone orig sprite
-        if scriptAnchor not in self.scripts:
-            origContent = self.gameSwf.getAS3(scriptAnchor)
-
-            if origContent is None:
+    def importScript(self, content: str, scriptAnchor: str, modHash: str, createIfNotExists=False):
+        """
+        Import an ActionScript into the game SWF.
+        
+        Args:
+            content: The ActionScript source code
+            scriptAnchor: The fully qualified class name
+            modHash: The mod hash installing this script
+            createIfNotExists: If True, create a new script if it doesn't exist
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        fileOpen = self.gameSwf.isOpen()
+        if not fileOpen:
+            self.open()
+        
+        # Check if script exists
+        origContent = self.gameSwf.getAS3(scriptAnchor)
+        isNewScript = origContent is None
+        
+        if isNewScript:
+            if not createIfNotExists:
+                print(f"❌ Script '{scriptAnchor}' does not exist and createIfNotExists is False")
+                if not fileOpen:
+                    self.close()
                 return False
-
-            self.scripts[scriptAnchor] = origContent
-
-        success = self.gameSwf.setAS3(scriptAnchor, content)
-
-        if success:
-            self.modifiedAnchorsMap[scriptAnchor] = modHash
-            return True
-
-        else:
+            
+            # Try to create new script (note: this may have limitations)
+            print(f"✨ Creating NEW ActionScript class '{scriptAnchor}'")
+            # For now, just log - AS3 creation is complex and may need manual intervention
+            print(f"⚠️ ActionScript creation not fully implemented - script '{scriptAnchor}' may need to be added manually")
+            if not fileOpen:
+                self.close()
             return False
+        else:
+            # Clone orig script for backup
+            if scriptAnchor not in self.scripts:
+                self.scripts[scriptAnchor] = origContent
+
+            success = self.gameSwf.setAS3(scriptAnchor, content)
+
+            if success:
+                self.modifiedAnchorsMap[scriptAnchor] = modHash
+                if not fileOpen:
+                    self.close()
+                return True
+            else:
+                if not fileOpen:
+                    self.close()
+                return False
 
     def importSound(self, sound: DefineSoundTag, soundAnchor: str, modHash: str):
         fileOpen = self.gameSwf.isOpen()
@@ -132,7 +165,20 @@ class GameSwf(GameSwfData):
         if not fileOpen:
             self.close()
 
-    def importSprite(self, sprite: DefineSpriteTag, spriteAnchor: str, modHash: str, elementsMap=None):
+    def importSprite(self, sprite: DefineSpriteTag, spriteAnchor: str, modHash: str, elementsMap=None, createIfNotExists=False):
+        """
+        Import a sprite into the game SWF.
+        
+        Args:
+            sprite: The DefineSpriteTag to import
+            spriteAnchor: The symbol class name for the sprite
+            modHash: The mod hash installing this sprite
+            elementsMap: Map of element IDs (for internal use)
+            createIfNotExists: If True, create a new sprite if it doesn't exist
+            
+        Returns:
+            True if successful, False otherwise
+        """
         fileOpen = self.gameSwf.isOpen()
         if elementsMap is None:
             elementsMap = {}
@@ -143,86 +189,170 @@ class GameSwf(GameSwfData):
             self.open()
 
         origSpriteId = self.gameSwf.symbolClass.getTagByName(spriteAnchor)
-        if origSpriteId is None:
-            print(f"Error: Element '{spriteAnchor}' not found!")
-            return
-        origSprite = self.gameSwf.getElementById(origSpriteId, DefineSpriteTag)[0]
+        isNewSprite = origSpriteId is None
+        
+        if isNewSprite:
+            if not createIfNotExists:
+                print(f"Error: Element '{spriteAnchor}' not found!")
+                return False
+            
+            # Create new sprite - assign a new character ID
+            origSpriteId = self.gameSwf.getNextCharacterId()
+            print(f"✨ Creating NEW sprite '{spriteAnchor}' with ID {origSpriteId}")
+            
+            # For new sprites, we'll add the sprite directly without needing an original
+            origSprite = None
+        else:
+            origSprite = self.gameSwf.getElementById(origSpriteId, DefineSpriteTag)[0]
 
-        # Remove modified sprite
-        if spriteAnchor in self.anchors:
+        # Remove modified sprite (only if it's not a new sprite)
+        if not isNewSprite and spriteAnchor in self.anchors:
             for needElId in GetNeededCharactersId(origSprite):
                 for needEl in self.gameSwf.getElementById(needElId):
                     self.gameSwf.removeElement(needEl)
 
-        for needElement in [*GetNeededCharacters(sprite), sprite]:
-            if GetElementId(needElement) not in elementsMap:
-                if needElement == sprite:
-                    # If orig cloned
-                    if spriteAnchor not in self.anchors:
-                        newOrigSpriteId = self.gameSwf.getNextCharacterId()
-                        if self.gameSwf.symbolClass.getTag(newOrigSpriteId) is not None:
-                            self.gameSwf.symbolClass.removeTag(newOrigSpriteId)
-
-                        self.gameSwf.cloneAndAddElement(origSprite, newOrigSpriteId)
-                        self.anchors[spriteAnchor] = newOrigSpriteId
-
-                    newElId = origSpriteId
-                    cloneEl = sprite.cloneTag()
-                    self.gameSwf.replaceElement(origSprite, cloneEl)
-                    SetElementId(cloneEl, origSpriteId)
-
-                else:
+        # For new sprites, we need to handle dependencies differently
+        if isNewSprite:
+            # Get needed characters from the sprite (from mod SWF, not game SWF)
+            spriteSwf = GetSwfByElement(sprite)
+            neededChars = GetNeededCharacters(sprite)
+            
+            # First, clone all dependencies
+            for needElement in neededChars:
+                needElId = GetElementId(needElement)
+                if needElId not in elementsMap:
                     newElId = self.gameSwf.getNextCharacterId()
                     cloneEl = self.gameSwf.cloneAndAddElement(needElement, newElId)
-
+                    
                     if self.gameSwf.symbolClass.getTag(newElId) is not None:
                         self.gameSwf.symbolClass.removeTag(newElId)
+                    
+                    elementsMap[needElId] = newElId
+                    
+                    if isinstance(cloneEl, DefineShapeTags):
+                        if GetShapeBitmapId(cloneEl) is not None:
+                            cloneShapes.append(cloneEl)
+                    elif isinstance(cloneEl, DefineSpriteTag):
+                        cloneSprites.append(cloneEl)
+                    
+                    # Handle font dependencies
+                    if isinstance(cloneEl, DefineFontTags):
+                        for dependentElement in spriteSwf.getElementById(needElId,
+                                                                           (DefineFontNameTag,
+                                                                            DefineFontAlignZonesTag)):
+                            self.gameSwf.cloneAndAddElement(dependentElement, newElId)
+                    
+                    elif isinstance(cloneEl, DefineEditTextTag):
+                        if dependentElement := spriteSwf.getElementById(needElId, CSMTextSettingsTag):
+                            self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
+                        if hasattr(needElement, 'fontId') and needElement.fontId in elementsMap:
+                            cloneEl.fontId = elementsMap[needElement.fontId]
+                    
+                    elif isinstance(cloneEl, DefineTextTag):
+                        if dependentElement := spriteSwf.getElementById(needElId, CSMTextSettingsTag):
+                            self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
+                        for textRecord in cloneEl.textRecords:
+                            if textRecord.styleFlagsHasFont and hasattr(textRecord, 'fontId'):
+                                if textRecord.fontId in elementsMap:
+                                    textRecord.fontId = elementsMap[textRecord.fontId]
+            
+            # Now add the sprite itself
+            newElId = origSpriteId
+            cloneEl = sprite.cloneTag()
+            self.gameSwf.addElement(cloneEl, newElId)
+            
+            # Add to symbol class
+            if self.gameSwf.symbolClass.getTag(newElId) is not None:
+                self.gameSwf.symbolClass.removeTag(newElId)
+            self.gameSwf.symbolClass.addTag(newElId, spriteAnchor)
+            
+            elementsMap[GetElementId(sprite)] = newElId
+            
+            # Add to cloneSprites list for PlaceObject tag updates
+            cloneSprites.append(cloneEl)
+            
+            print(f"✨ Added new sprite '{spriteAnchor}' to symbol class with ID {newElId}")
+        else:
+            # Existing sprite replacement logic (original code)
+            for needElement in [*GetNeededCharacters(sprite), sprite]:
+                if GetElementId(needElement) not in elementsMap:
+                    if needElement == sprite:
+                        # If orig cloned
+                        if spriteAnchor not in self.anchors:
+                            newOrigSpriteId = self.gameSwf.getNextCharacterId()
+                            if self.gameSwf.symbolClass.getTag(newOrigSpriteId) is not None:
+                                self.gameSwf.symbolClass.removeTag(newOrigSpriteId)
 
-                elementsMap[GetElementId(needElement)] = newElId
+                            self.gameSwf.cloneAndAddElement(origSprite, newOrigSpriteId)
+                            self.anchors[spriteAnchor] = newOrigSpriteId
 
-                if isinstance(cloneEl, DefineShapeTags):
-                    if GetShapeBitmapId(cloneEl) is not None:
-                        cloneShapes.append(cloneEl)
+                        newElId = origSpriteId
+                        cloneEl = sprite.cloneTag()
+                        self.gameSwf.replaceElement(origSprite, cloneEl)
+                        SetElementId(cloneEl, origSpriteId)
 
-                elif isinstance(cloneEl, DefineSpriteTag):
-                    cloneSprites.append(cloneEl)
+                    else:
+                        newElId = self.gameSwf.getNextCharacterId()
+                        cloneEl = self.gameSwf.cloneAndAddElement(needElement, newElId)
 
-                if isinstance(cloneEl, DefineFontTags):
-                    for dependentElement in GetSwfByElement(sprite).getElementById(GetElementId(needElement),
-                                                                                   (DefineFontNameTag,
-                                                                                   DefineFontAlignZonesTag)):
-                        self.gameSwf.cloneAndAddElement(dependentElement, newElId)
+                        if self.gameSwf.symbolClass.getTag(newElId) is not None:
+                            self.gameSwf.symbolClass.removeTag(newElId)
 
-                elif isinstance(cloneEl, DefineEditTextTag):
-                    if dependentElement := GetSwfByElement(sprite).getElementById(GetElementId(needElement),
-                                                                                  CSMTextSettingsTag):
-                        self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
-                    cloneEl.fontId = elementsMap[needElement.fontId]
+                    elementsMap[GetElementId(needElement)] = newElId
 
-                elif isinstance(cloneEl, DefineTextTag):
-                    if dependentElement := GetSwfByElement(sprite).getElementById(GetElementId(needElement),
-                                                                                  CSMTextSettingsTag):
-                        self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
+                    if isinstance(cloneEl, DefineShapeTags):
+                        if GetShapeBitmapId(cloneEl) is not None:
+                            cloneShapes.append(cloneEl)
 
-                    for textRecord in cloneEl.textRecords:
-                        if textRecord.styleFlagsHasFont:
-                            textRecord.fontId = elementsMap[textRecord.fontId]
+                    elif isinstance(cloneEl, DefineSpriteTag):
+                        cloneSprites.append(cloneEl)
+
+                    if isinstance(cloneEl, DefineFontTags):
+                        for dependentElement in GetSwfByElement(sprite).getElementById(GetElementId(needElement),
+                                                                                       (DefineFontNameTag,
+                                                                                        DefineFontAlignZonesTag)):
+                            self.gameSwf.cloneAndAddElement(dependentElement, newElId)
+
+                    elif isinstance(cloneEl, DefineEditTextTag):
+                        if dependentElement := GetSwfByElement(sprite).getElementById(GetElementId(needElement),
+                                                                                      CSMTextSettingsTag):
+                            self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
+                        if hasattr(needElement, 'fontId') and needElement.fontId in elementsMap:
+                            cloneEl.fontId = elementsMap[needElement.fontId]
+
+                    elif isinstance(cloneEl, DefineTextTag):
+                        if dependentElement := GetSwfByElement(sprite).getElementById(GetElementId(needElement),
+                                                                                      CSMTextSettingsTag):
+                            self.gameSwf.cloneAndAddElement(dependentElement[0], newElId)
+
+                        for textRecord in cloneEl.textRecords:
+                            if textRecord.styleFlagsHasFont and hasattr(textRecord, 'fontId'):
+                                if textRecord.fontId in elementsMap:
+                                    textRecord.fontId = elementsMap[textRecord.fontId]
 
         for cloneSprite in cloneSprites:
             for sEl in cloneSprite.getTags().iterator():
                 if isinstance(sEl, PlaceObject2Tag) and sEl.characterId > 0:
-                    SetElementId(sEl, elementsMap[sEl.characterId])
+                    # Only update if the character ID exists in elementsMap
+                    if sEl.characterId in elementsMap:
+                        SetElementId(sEl, elementsMap[sEl.characterId])
                 elif isinstance(sEl, PlaceObject3Tag) and sEl.characterId > 0:
-                    SetElementId(sEl, elementsMap[sEl.characterId])
+                    # Only update if the character ID exists in elementsMap
+                    if sEl.characterId in elementsMap:
+                        SetElementId(sEl, elementsMap[sEl.characterId])
 
         for cloneShape in cloneShapes:
             bitmapId = GetShapeBitmapId(cloneShape)
-            SetShapeBitmapId(cloneShape, elementsMap[bitmapId])
+            # Only update if the bitmap ID exists in elementsMap
+            if bitmapId is not None and bitmapId in elementsMap:
+                SetShapeBitmapId(cloneShape, elementsMap[bitmapId])
 
         self.modifiedAnchorsMap[spriteAnchor] = modHash
 
         if not fileOpen:
             self.close()
+        
+        return True
 
     def uninstallMod(self, modHash: str):
         SendNotification(NotificationType.UninstallingModSwf, modHash, os.path.split(self.gameSwf.swfPath)[1])

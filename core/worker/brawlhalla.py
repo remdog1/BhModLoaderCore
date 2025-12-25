@@ -120,18 +120,33 @@ if BRAWLHALLA_PATH is not None:
     for path, _, files in os.walk(BRAWLHALLA_PATH):
         for file in files:
             if file.endswith(".mp3") or file.endswith(".png") or file.endswith(".jpg") or file.endswith(".bnk") or file.endswith(".bin"):
-                # Use relative path from Brawlhalla root to preserve folder hierarchy
+                # Calculate relative path from BRAWLHALLA_PATH
                 relative_path = os.path.relpath(os.path.join(path, file), BRAWLHALLA_PATH)
-                # Normalize path separators for cross-platform compatibility
                 relative_path = relative_path.replace("\\", "/")
-                BRAWLHALLA_FILES[relative_path] = os.path.join(path, file)
+                
+                # For images: use relative path as key (like SWF files)
+                if file.endswith(".png") or file.endswith(".jpg"):
+                    BRAWLHALLA_FILES[relative_path] = os.path.join(path, file)
+                    # Only add filename as key if it doesn't exist (preserve first folder processed)
+                    if file not in BRAWLHALLA_FILES:
+                        BRAWLHALLA_FILES[file] = os.path.join(path, file)
+                # For BNK files: use relative path as key to handle subdirectories
+                elif file.endswith(".bnk"):
+                    BRAWLHALLA_FILES[relative_path] = os.path.join(path, file)
+                    # Only add filename as key if it doesn't exist (preserve first folder processed)
+                    if file not in BRAWLHALLA_FILES:
+                        BRAWLHALLA_FILES[file] = os.path.join(path, file)
+                # For other files: use filename as key (existing logic)
+                else:
+                    BRAWLHALLA_FILES[file] = os.path.join(path, file)
+                
                 # For diagnostics - log all detected language files to make troubleshooting easier
                 if file.startswith("language.") and file.endswith(".bin"):
                     log_dir = os.path.join(MODLOADER_CACHE_PATH, "logs")
                     if not os.path.exists(log_dir):
                         os.makedirs(log_dir, exist_ok=True)
                     with open(os.path.join(log_dir, "detected_language_files.txt"), "a", encoding="utf-8") as log_file:
-                        log_file.write(f"Detected language file: {relative_path} at {os.path.join(path, file)}\n")
+                        log_file.write(f"Detected language file: {file} at {os.path.join(path, file)}\n")
 
     # Get brawlhalla version
     _bhAir = BRAWLHALLA_SWFS.get("BrawlhallaAir.swf", None)

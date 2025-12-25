@@ -197,7 +197,7 @@ def apply_loading_screen_overlay():
         if not os.path.exists(ui_images_path):
             return
 
-        overlay_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'ui', 'ui_sources', 'resources', 'images', 'Modloader_UI_overlay.png'))
+        overlay_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'ui', 'ui_sources', 'resources', 'images', 'Modloader_UI_overlay.png'))
         if not os.path.exists(overlay_path):
             return
 

@@ -99,6 +99,9 @@ class BaseModClass(DataClass):
     DataVariable([METADATA_FORMAT_MOD, METADATA_FORMAT_CACHE_MOD], 2, "modUrl")
     modUrl: str
 
+    DataVariable([METADATA_FORMAT_MOD, METADATA_FORMAT_CACHE_MOD], 1, "features")
+    features: List[str]
+
     def loadModData(self):
         pass
 
@@ -143,6 +146,26 @@ class ModSource(BaseModClass):
             self.modPath = os.path.join(MODS_PATH[0], f"{self.folderName}.{MOD_FILE_FORMAT}")
         else:
             self.modPath = os.path.join(MODS_SOURCES_PATH[0], f"{self.folderName}.{MOD_FILE_FORMAT}")
+
+        # Initialize required attributes with default values
+        if not hasattr(self, 'gameVersion'):
+            self.gameVersion = ""
+        if not hasattr(self, 'name'):
+            self.name = ""
+        if not hasattr(self, 'author'):
+            self.author = ""
+        if not hasattr(self, 'version'):
+            self.version = ""
+        if not hasattr(self, 'description'):
+            self.description = ""
+        if not hasattr(self, 'tags'):
+            self.tags = []
+        if not hasattr(self, 'previewsIds'):
+            self.previewsIds = {}
+        if not hasattr(self, 'swfs'):
+            self.swfs = {}
+        if not hasattr(self, 'files'):
+            self.files = {}
 
         self.loadModData()
 
@@ -236,6 +259,19 @@ class ModSource(BaseModClass):
 
         for folder in os.listdir(self.modSourcesPath):
             folderPath = os.path.join(self.modSourcesPath, folder)
+
+            # Check for full .swf files in the root of the mod folder
+            if os.path.isfile(folderPath) and folder.endswith(".swf"):
+                # This is a full SWF file to be packaged and installed as-is
+                if folder in BRAWLHALLA_SWFS:
+                    SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, folder)
+                    print(f"Found full .swf file in root: {folder}")
+                    binaryTag = modSwf.importBinaryFile(folderPath)
+                    self.files[GetElementId(binaryTag)] = folder
+                else:
+                    SendNotification(NotificationType.CompileModSourcesUnknownFile, self.hash, 
+                                    f"Unknown SWF file: {folder}. Only game SWF files can be replaced.")
+                continue
 
             if os.path.isfile(folderPath):
                 continue
@@ -387,32 +423,81 @@ class ModSource(BaseModClass):
                         previewFormat = os.path.splitext(preview)[1][1:]
                         self.previewsIds[GetElementId(binaryTag)] = previewFormat
 
-            # Import images, music
+            # Import images and music with folder path logic
             elif os.path.isdir(folderPath):
                 for path, folders, files in os.walk(folderPath):
                     for file in files:
-                        # Calculate relative path from mod source root
+                        # Calculate relative path from mod source root (like SWF files)
                         relative_path = os.path.relpath(os.path.join(path, file), self.modSourcesPath)
-                        # Normalize path separators for cross-platform compatibility
                         relative_path = relative_path.replace("\\", "/")
                         
-                        # Check if this file matches any Brawlhalla file (by relative path or filename)
-                        file_key = None
-                        if relative_path in BRAWLHALLA_FILES:
-                            file_key = relative_path
-                        else:
-                            # Fallback: check by filename only (legacy support)
-                            for brawlhalla_path in BRAWLHALLA_FILES.keys():
-                                if os.path.basename(brawlhalla_path) == file:
-                                    file_key = brawlhalla_path
-                                    break
-                        
-                        if file_key:
-                            #print("Import File", file_key)
-                            SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, file_key)
+                        if file in BRAWLHALLA_FILES:
+                            # Special handling for language files - always use just filename, never folder path
+                            if file.startswith("language.") and file.endswith(".bin"):
+                                SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, file)
+                                binaryTag = modSwf.importBinaryFile(os.path.join(path, file))
+                                self.files[GetElementId(binaryTag)] = file  # Just filename: language.1.bin
+                            # For images, try to find the best match considering folder structure
+                            elif file.endswith(".png") or file.endswith(".jpg"):
+                                # Get the folder name from the bmod path
+                                bmod_folder = os.path.basename(path)
+                                
+                                # Try to find a game file that matches both filename and folder context
+                                best_match = None
+                                for game_file, game_path in BRAWLHALLA_FILES.items():
+                                    if game_file == file:
+                                        # Check if the game path contains the same folder name
+                                        if bmod_folder.lower() in game_path.lower():
+                                            best_match = game_file
+                                            break
+                                        elif best_match is None:
+                                            # Fallback to first match if no folder match found
+                                            best_match = game_file
+                                
+                                if best_match:
+                                    print(f"✅ Installing image: {file} from folder {bmod_folder} -> {BRAWLHALLA_FILES[best_match]}")
+                                    SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, best_match)
+                                    
+                                    binaryTag = modSwf.importBinaryFile(os.path.join(path, file))
+                                    # Store the relative path instead of just filename for images
+                                    self.files[GetElementId(binaryTag)] = relative_path
+                                else:
+                                    print(f"❌ No suitable match for image: {file}")
+                                    SendNotification(NotificationType.CompileModSourcesUnknownFile, self.hash, file)
+                            # Special handling for WEM files - preserve folder structure for BNK matching
+                            elif file.endswith(".wem"):
+                                # Get the folder name from the bmod path
+                                bmod_folder = os.path.basename(path)
+                                
+                                # Try to find a BNK file that matches the folder context
+                                best_bnk_match = None
+                                for game_file, game_path in BRAWLHALLA_FILES.items():
+                                    if game_file.endswith(".bnk"):
+                                        # Check if the game path contains the same folder name
+                                        if bmod_folder.lower() in game_path.lower():
+                                            best_bnk_match = game_file
+                                            break
+                                        elif best_bnk_match is None:
+                                            # Fallback to first BNK match if no folder match found
+                                            best_bnk_match = game_file
+                                
+                                if best_bnk_match:
+                                    print(f"✅ Installing WEM: {file} from folder {bmod_folder} -> {BRAWLHALLA_FILES[best_bnk_match]}")
+                                    SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, best_bnk_match)
+                                    
+                                    binaryTag = modSwf.importBinaryFile(os.path.join(path, file))
+                                    # Store the relative path to preserve folder context for BNK processing
+                                    self.files[GetElementId(binaryTag)] = relative_path
+                                else:
+                                    print(f"❌ No suitable BNK match for WEM: {file}")
+                                    SendNotification(NotificationType.CompileModSourcesUnknownFile, self.hash, file)
+                            else:
+                                # For other files (BNK, etc.), use original logic
+                                #print("Import File", file)
+                                SendNotification(NotificationType.CompileModSourcesImportFile, self.hash, file)
 
-                            binaryTag = modSwf.importBinaryFile(os.path.join(path, file))
-                            self.files[GetElementId(binaryTag)] = file_key
+                                binaryTag = modSwf.importBinaryFile(os.path.join(path, file))
+                                self.files[GetElementId(binaryTag)] = file
 
                         else:
                             #print("Error: Unknown file:", file)
@@ -496,6 +581,7 @@ class ModCache(BaseModClass):
 
 class ModClass(ModCache):
     def __init__(self, modsCachePath: str, modPath: str = None, modHash: str = None):
+        print(f"🔧 ModClass constructor called with: modPath={modPath}, modHash={modHash}")
         self.modPath = modPath
         self.modsHashSumCache = ModsHashSumCache(modsCachePath)
         self.as3files = {}  # Add default empty as3files dictionary
@@ -503,10 +589,12 @@ class ModClass(ModCache):
         SendNotification(NotificationType.LoadingMod, modPath)
 
         if self.modPath is not None and os.path.exists(self.modPath):
+            print(f"🔧 Mod file exists: {self.modPath}")
             self.modFileExist = True
 
             self.modSwf = Swf(self.modPath, autoload=False)
             modHashSum = HashFile(self.modPath)
+            print(f"🔧 Mod hash: {modHashSum}")
 
             _cache = False
 
@@ -573,7 +661,13 @@ class ModClass(ModCache):
             self.modsHashSumCache.removeHash(modHashSum)
             self.modsHashSumCache.save()
 
-        shutil.rmtree(self.modCachePath)
+        # Safely remove cache directory if it exists
+        if os.path.exists(self.modCachePath):
+            try:
+                shutil.rmtree(self.modCachePath)
+            except (OSError, FileNotFoundError) as e:
+                # Cache directory might already be gone, that's okay
+                print(f"Warning: Could not remove cache directory {self.modCachePath}: {e}")
 
     def loadModData(self):
         modOpen = self.modSwf.isOpen()
@@ -642,7 +736,20 @@ class ModClass(ModCache):
         conflictMods = set(GameFiles.getModConflict(list(self.files.values()), self.hash))
         for swfName, swfMap in self.swfs.items():
             gameFile = GetGameFileClass(swfName)
-            gameFile.open()
+            try:
+                gameFile.open()
+            except Exception as e:
+                # Handle corrupted SWF file errors
+                error_str = str(e)
+                if "SwfOpenException" in error_str or "SWF header is too short" in error_str or "corrupted" in error_str.lower() or "Invalid SWF file" in error_str:
+                    SendNotification(NotificationType.Error, f"Failed to check mod conflicts: {error_str}")
+                    # Continue with other files, but log this error
+                    with open(os.path.join(MODLOADER_CACHE_PATH, "logs", "mod_conflict_errors.log"), "a", encoding="utf-8") as log_file:
+                        log_file.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Error opening {swfName} for conflict check: {error_str}\n")
+                    continue
+                else:
+                    # Re-raise other exceptions
+                    raise
 
             SendNotification(NotificationType.ModConflictSearchInSwf, self.hash, swfName)
 
@@ -675,6 +782,7 @@ class ModClass(ModCache):
 
     def install(self, forceInstallation=False):
         """Install a mod"""
+        print(f"🚀 INSTALL METHOD CALLED for mod: {self.hash}")
         LOCK.acquire(True)
         
         # Create logs directory if needed
@@ -705,8 +813,10 @@ class ModClass(ModCache):
         # Indicates if the mod contains any language.bin files
         has_language_bin = False
         has_bnk_files = False
+        has_wem_files = False
         language_files_processed = []
         bnk_files_processed = []
+        wem_files_processed = []
 
         # Track language installation order
         language_install_order_path = os.path.join(MODLOADER_CACHE_PATH, "language_install_order.json")
@@ -720,31 +830,55 @@ class ModClass(ModCache):
         total_files = len(self.files)
         processed_files = 0
         
+        print(f"🔧 INSTALLING MOD: {self.hash}")
+        print(f"📁 Total files to process: {total_files}")
+        print(f"📁 Files in mod: {list(self.files.values())}")
+        print(f"📁 Files in mod (detailed): {self.files}")
+        
         for elId, fileName in self.files.items():
             # Update progress for file processing
             processed_files += 1
             SendNotification(NotificationType.InstallingModFile, self.hash, fileName)
             
+            # Add comprehensive debug logging
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Processing file {processed_files}/{total_files}: {fileName}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: File ID: {elId}, File Name: {fileName}")
+            
             fileElement = self.modSwf.getElementById(elId)
             if fileElement:
                 fileElement = fileElement[0]
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Found file element for {fileName}")
             else:
-                #print(f"Error: Not found element '{[elId]}', fileElement)
+                SendNotification(NotificationType.Debug, f"❌ INSTALL: ERROR - Not found element '{elId}' for file '{fileName}'")
                 SendNotification(NotificationType.InstallingModNotFoundFileElement, self.hash, elId)
                 continue
 
             # Add progress update before heavy operation
-            SendNotification(NotificationType.Debug, f"Processing file {processed_files}/{total_files}: {fileName}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Exporting binary data for {fileName}")
             file_data = self.modSwf.exportBinaryData(fileElement)
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Exported {len(file_data)} bytes for {fileName}")
             
             # Log file info
             with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
                 log_file.write(f"Processing file: {fileName}, Size: {len(file_data)} bytes\n")
             
             # Check if this is a language file (.bin or .txt)
-            is_language_file = (fileName.startswith("language.") and fileName.endswith(".bin")) or fileName.endswith("_language.txt")
+            # Handle both direct files (language.1.bin) and files in folders (languages/language.1.bin)
+            is_language_file = (
+                ("language." in fileName and fileName.endswith(".bin")) or 
+                fileName.endswith("_language.txt")
+            )
+            
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Processing file: {fileName}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Is language file: {is_language_file}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: File starts with 'language.': {fileName.startswith('language.')}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: File ends with '.bin': {fileName.endswith('.bin')}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: File ends with '_language.txt': {fileName.endswith('_language.txt')}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Contains 'language.': {'language.' in fileName}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Detection logic result: {('language.' in fileName and fileName.endswith('.bin')) or fileName.endswith('_language.txt')}")
             
             if is_language_file:
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: *** LANGUAGE FILE DETECTED ***")
                 SendNotification(NotificationType.Debug, f"Found language file: {fileName} in mod {self.hash}")
                 has_language_bin = True
                 language_files_processed.append(fileName)
@@ -753,42 +887,55 @@ class ModClass(ModCache):
                 from .langbin import lang_bin_handler
                 
                 # Create a debug message
-                SendNotification(NotificationType.Debug, f"Calling language handler for: {fileName}")
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Calling language handler for: {fileName}")
                 
                 # Save file to a temporary location with a unique name to avoid conflicts
                 import uuid
                 temp_id = str(uuid.uuid4())[:8]
-                temp_file_path = os.path.join(MODLOADER_CACHE_PATH, f"temp_{temp_id}_{fileName}")
+                # Extract just the filename from the path to avoid directory issues
+                filename_only = os.path.basename(fileName)
+                temp_file_path = os.path.join(MODLOADER_CACHE_PATH, f"temp_{temp_id}_{filename_only}")
                 
                 try:
                     # Write the file data to the temporary file
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Writing language file to temp: {temp_file_path}")
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Original filename: {fileName}, Extracted filename: {filename_only}")
                     with open(temp_file_path, "wb") as tmp_file:
                         tmp_file.write(file_data)
                     
                     # Process the language file and apply its changes
                     try:
                         # Add original file name as a parameter to help match the correct game file
-                        success = lang_bin_handler.apply_mod_language_changes(temp_file_path, self.hash, original_filename=fileName)
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Calling apply_mod_language_changes with file: {fileName}")
+                        success = lang_bin_handler.apply_mod_language_changes(temp_file_path, self.hash, original_filename=filename_only)
                         
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Language handler result: {success}")
                         if success:
+                            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Language.txt result: True")
                             SendNotification(NotificationType.Success, f"Successfully applied language changes from {fileName}")
                         else:
+                            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Language.txt result: False")
                             SendNotification(NotificationType.Error, f"Failed to apply language changes from {fileName}")
                     except Exception as e:
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Language.txt error: {str(e)}")
                         SendNotification(NotificationType.Error, f"Error processing language file: {str(e)}")
                 except Exception as e:
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Error saving temp language file: {str(e)}")
                     SendNotification(NotificationType.Error, f"Error saving temporary language file: {str(e)}")
                 
                 # Clean up the temporary file
                 if os.path.exists(temp_file_path):
                     try:
                         os.remove(temp_file_path)
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Cleaned up temp language file: {temp_file_path}")
                     except Exception as e:
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Error removing temp language file: {str(e)}")
                         with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
                             log_file.write(f"Error removing temporary file: {str(e)}\n")
             
             # Check if this is a .bnk file
             elif fileName.endswith(".bnk"):
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: *** BNK FILE DETECTED ***")
                 has_bnk_files = True
                 bnk_files_processed.append(fileName)
                 
@@ -796,85 +943,199 @@ class ModClass(ModCache):
                 SendNotification(NotificationType.Debug, f"Found .bnk file in mod: {fileName}")
                 
                 # Save file to a temporary location
-                temp_file_path = os.path.join(MODLOADER_CACHE_PATH, f"temp_{fileName}")
+                # Extract just the filename from the path to avoid directory issues
+                filename_only = os.path.basename(fileName)
+                temp_file_path = os.path.join(MODLOADER_CACHE_PATH, f"temp_{filename_only}")
                 try:
                     # Write the binary data to the temporary file
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Writing BNK file to temp: {temp_file_path}")
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Original filename: {fileName}, Extracted filename: {filename_only}")
                     with open(temp_file_path, "wb") as tmp_file:
                         tmp_file.write(file_data)
                     
                     # Process the .bnk file and apply its changes
-                    success = bnk_handler.apply_mod_changes(temp_file_path, self.hash, fileName)
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Calling BNK handler for: {fileName}")
+                    success = bnk_handler.apply_mod_changes(temp_file_path, self.hash, filename_only)
                     
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: BNK handler result: {success}")
                     if success:
                         SendNotification(NotificationType.Success, f"Successfully applied BNK changes from {fileName}")
                     else:
                         SendNotification(NotificationType.Error, f"Failed to apply BNK changes from {fileName}")
                         
                 except Exception as e:
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: BNK processing error: {str(e)}")
                     SendNotification(NotificationType.Error, f"Error processing BNK file: {str(e)}")
                     
                 # Clean up the temporary file
                 if os.path.exists(temp_file_path):
                     try:
                         os.remove(temp_file_path)
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Cleaned up temp BNK file: {temp_file_path}")
                     except Exception as e:
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Error removing temp BNK file: {str(e)}")
                         with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
                             log_file.write(f"Error removing temporary BNK file: {str(e)}\n")
-            else:
-                # Regular file installation
+            
+            # Check if this is a .wem file
+            elif fileName.endswith(".wem"):
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: *** WEM FILE DETECTED ***")
+                has_wem_files = True
+                wem_files_processed.append(fileName)
+                SendNotification(NotificationType.Debug, f"Found .wem file in mod: {fileName}")
+                
+                # Handle .wem file with specialized handler
+                # Determine the target BNK file based on folder structure
+                filename_only = os.path.basename(fileName)
+                target_bnk_file = None
+                
+                # If the fileName contains folder structure (e.g., "sounds/001.wem"), 
+                # try to find the matching BNK file
+                if "/" in fileName:
+                    folder_name = fileName.split("/")[0]
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: WEM file in folder: {folder_name}")
+                    
+                    # Look for BNK files that might match this folder
+                    for game_file, game_path in BRAWLHALLA_FILES.items():
+                        if game_file.endswith(".bnk") and folder_name.lower() in game_path.lower():
+                            target_bnk_file = game_file
+                            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Found matching BNK: {target_bnk_file}")
+                            break
+                
+                # If no specific BNK found, use the filename as fallback
+                if target_bnk_file is None:
+                    target_bnk_file = filename_only
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Using filename as BNK target: {target_bnk_file}")
+                
+                # Save file to a temporary location
+                temp_file_path = os.path.join(MODLOADER_CACHE_PATH, f"temp_{filename_only}")
+                try:
+                    # Write the binary data to the temporary file
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Writing WEM file to temp: {temp_file_path}")
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Original filename: {fileName}, Extracted filename: {filename_only}")
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Target BNK file: {target_bnk_file}")
+                    with open(temp_file_path, "wb") as tmp_file:
+                        tmp_file.write(file_data)
+                    
+                    # Process the .wem file and apply its changes
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: Calling WEM handler for: {fileName}")
+                    success = bnk_handler.apply_wem_file(temp_file_path, self.hash, target_bnk_file)
+                    
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: WEM handler result: {success}")
+                    if success:
+                        SendNotification(NotificationType.Success, f"Successfully applied WEM changes from {fileName} to {target_bnk_file}")
+                    else:
+                        SendNotification(NotificationType.Error, f"Failed to apply WEM changes from {fileName} to {target_bnk_file}")
+                        
+                except Exception as e:
+                    SendNotification(NotificationType.Debug, f"🔧 INSTALL: WEM processing error: {str(e)}")
+                    SendNotification(NotificationType.Error, f"Error processing WEM file: {str(e)}")
+                    
+                # Clean up the temporary file
+                if os.path.exists(temp_file_path):
+                    try:
+                        os.remove(temp_file_path)
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Cleaned up temp WEM file: {temp_file_path}")
+                    except Exception as e:
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Error removing temp WEM file: {str(e)}")
+                        with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
+                            log_file.write(f"Error removing temporary WEM file: {str(e)}\n")
+            # Check if this is a full .swf file replacement
+            elif fileName.endswith(".swf") and fileName in BRAWLHALLA_SWFS:
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: *** FULL SWF FILE REPLACEMENT DETECTED ***")
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Installing full SWF file: {fileName}")
+                # Install the full SWF file directly using GameFiles
                 GameFiles.installFile(fileName, file_data, self.hash)
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Completed full SWF file installation: {fileName}")
+            
+            else:
+                # Regular file installation (including images)
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: *** REGULAR FILE DETECTED ***")
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Installing regular file: {fileName}")
+                GameFiles.installFile(fileName, file_data, self.hash)
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Completed regular file installation: {fileName}")
         
         # Process SWF files with progress tracking
         total_swfs = len(self.swfs)
         processed_swfs = 0
         
+        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Starting SWF processing - {total_swfs} SWF files to process")
+        
         for swfName, swfMap in self.swfs.items():
             processed_swfs += 1
-            SendNotification(NotificationType.Debug, f"Processing SWF {processed_swfs}/{total_swfs}: {swfName}")
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Processing SWF {processed_swfs}/{total_swfs}: {swfName}")
             
             gameFile = GetGameFileClass(swfName)
-            gameFile.open()
-
             if gameFile is None:
-                #print(f"Error: Not found swf '{swfName}'!")
+                SendNotification(NotificationType.Debug, f"❌ INSTALL: ERROR - Game file not found for SWF: {swfName}")
                 SendNotification(NotificationType.InstallingModNotFoundGameSwf, self.hash, swfName)
                 continue
+            
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Opening game file: {swfName}")
+            try:
+                gameFile.open()
+            except Exception as e:
+                # Handle corrupted SWF file errors
+                error_str = str(e)
+                if "SwfOpenException" in error_str or "SWF header is too short" in error_str or "corrupted" in error_str.lower() or "Invalid SWF file" in error_str:
+                    error_msg = (
+                        f"Failed to install mod '{self.name}': SWF file '{swfName}' is corrupted.\n\n"
+                        f"{error_str}\n\n"
+                        "This usually happens when the game file was corrupted during a previous operation.\n\n"
+                        "Possible solutions:\n"
+                        "1. Verify game files through Steam/Epic Games to restore the original file\n"
+                        "2. Uninstall all mods and reinstall them one at a time\n"
+                        "3. Restore the file from a backup if available\n"
+                        "4. Reinstall the game if the file is a core game file"
+                    )
+                    SendNotification(NotificationType.Error, error_msg)
+                    raise Exception(error_msg) from e
+                else:
+                    # Re-raise other exceptions
+                    raise
 
             if self.hash in gameFile.installed:
-                #print(f"Mod '{self.name}' in '{swfName}' is already installed")
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Mod already installed in SWF: {swfName}")
                 SendNotification(NotificationType.InstallingModInFileAlreadyInstalled, self.hash, swfName)
                 continue
             else:
-                #print(f"Installing '{self.name}' in '{swfName}'")
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Installing mod in SWF: {swfName}")
                 SendNotification(NotificationType.InstallingModSwf, self.hash, swfName)
 
             # Count total elements for progress tracking
             total_elements = sum(len(elements) for elements in swfMap.values())
             processed_elements = 0
             
+            SendNotification(NotificationType.Debug, f"🔧 INSTALL: SWF {swfName} has {total_elements} elements to process")
+            
             for category, elements in swfMap.items():
+                SendNotification(NotificationType.Debug, f"🔧 INSTALL: Processing category '{category}' with {len(elements)} elements")
+                
                 if category == "scripts":
                     for scriptAnchor, content in elements.items():
                         processed_elements += 1
                         SendNotification(NotificationType.InstallingModSwfScript, self.hash, scriptAnchor)
-                        SendNotification(NotificationType.Debug, f"Processing script {processed_elements}/{total_elements}: {scriptAnchor}")
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Processing script {processed_elements}/{total_elements}: {scriptAnchor}")
 
                         success = gameFile.importScript(content, scriptAnchor, self.hash)
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Script import result: {success}")
 
                         if not success:
+                            SendNotification(NotificationType.Debug, f"❌ INSTALL: Script import failed: {scriptAnchor}")
                             SendNotification(NotificationType.InstallingModSwfScriptError, self.hash, scriptAnchor)
 
                 elif category == "sounds":
                     for soundAnchor in elements:
                         processed_elements += 1
-                        #print("Install Sound", soundAnchor)
                         SendNotification(NotificationType.InstallingModSwfSound, self.hash, soundAnchor)
-                        SendNotification(NotificationType.Debug, f"Processing sound {processed_elements}/{total_elements}: {soundAnchor}")
+                        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Processing sound {processed_elements}/{total_elements}: {soundAnchor}")
 
                         try:
                             soundId = self.modSwf.symbolClass.getTagByName(soundAnchor)
+                            SendNotification(NotificationType.Debug, f"🔧 INSTALL: Found sound ID: {soundId}")
                         except AttributeError:
-                            # Fallback if getTagByName doesn't work
+                            SendNotification(NotificationType.Debug, f"❌ INSTALL: Sound not found in symbol class: {soundAnchor}")
+                            continue
                             soundId = None
                             for tag_id, name in self.modSwf.symbolClass.getTags().items():
                                 if name == soundAnchor:
@@ -930,10 +1191,36 @@ class ModClass(ModCache):
                                              self.hash, sprite_name, spriteId, swfName)
                             continue
 
-                        gameFile.importSprite(spriteTag, sprite_name, self.hash)
+                        # Try to import with createIfNotExists=True for new sprites
+                        # importSprite will handle detection and creation internally
+                        success = gameFile.importSprite(spriteTag, sprite_name, self.hash, createIfNotExists=True)
+                        if not success:
+                            SendNotification(NotificationType.Debug, f"❌ INSTALL: Sprite import failed: {sprite_name}")
+                            SendNotification(NotificationType.InstallingModSpriteNotExist,
+                                             self.hash, sprite_name, spriteId, swfName)
 
             gameFile.addInstalledMod(self.hash)
-            gameFile.save()
+            try:
+                gameFile.save()
+            except Exception as e:
+                # Check if it's an OutOfMemoryError
+                error_str = str(e)
+                if "OutOfMemoryError" in error_str or "java.lang.OutOfMemoryError" in error_str:
+                    gameFile.close()  # Make sure to close the file even on error
+                    error_msg = (
+                        f"Java ran out of memory while installing mod '{self.name}'.\n\n"
+                        "This can happen with large mods or when processing multiple mods.\n\n"
+                        "Possible solutions:\n"
+                        "1. Close other applications to free up RAM\n"
+                        "2. Install mods one at a time instead of multiple at once\n"
+                        "3. Restart the mod loader to free up Java memory\n"
+                        "4. If the problem persists, try deleting the bhloader cache folder and restarting"
+                    )
+                    SendNotification(NotificationType.Error, error_msg)
+                    raise Exception(f"OutOfMemoryError installing mod '{self.name}': Java heap space exhausted. " + error_msg) from e
+                else:
+                    # Re-raise other exceptions as-is
+                    raise
             gameFile.close()
 
         for fileName, asContent in self.as3files.items():
@@ -950,6 +1237,37 @@ class ModClass(ModCache):
         self.saveCache()
         
         # Send completion notification after setting installed status
+        # Final installation summary
+        SendNotification(NotificationType.Debug, f"🎉 INSTALL: Installation completed for mod: {self.name}")
+        SendNotification(NotificationType.Debug, f"🎉 INSTALL: Total files processed: {total_files}")
+        SendNotification(NotificationType.Debug, f"🎉 INSTALL: Language files processed: {len(language_files_processed)}")
+        SendNotification(NotificationType.Debug, f"🎉 INSTALL: BNK files processed: {len(bnk_files_processed)}")
+        SendNotification(NotificationType.Debug, f"🎉 INSTALL: SWF files processed: {total_swfs}")
+        
+        if language_files_processed:
+            SendNotification(NotificationType.Debug, f"🎉 INSTALL: Language files: {language_files_processed}")
+        if bnk_files_processed:
+            SendNotification(NotificationType.Debug, f"🎉 INSTALL: BNK files: {bnk_files_processed}")
+        
+        # Log final summary
+        with open(os.path.join(log_dir, "mod_installation.txt"), "a", encoding="utf-8") as log_file:
+            log_file.write(f"\n=== INSTALLATION SUMMARY ===\n")
+            log_file.write(f"Mod: {self.name} (Hash: {self.hash})\n")
+            log_file.write(f"Total files processed: {total_files}\n")
+            log_file.write(f"Language files: {language_files_processed}\n")
+            log_file.write(f"BNK files: {bnk_files_processed}\n")
+            log_file.write(f"WEM files: {wem_files_processed}\n")
+            log_file.write(f"SWF files: {total_swfs}\n")
+            log_file.write(f"Installation completed at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            log_file.write(f"================================\n")
+
+        # Send debug summary
+        SendNotification(NotificationType.Debug, f"🔧 INSTALL: Installation Summary:")
+        SendNotification(NotificationType.Debug, f"🔧 INSTALL: - Language files processed: {len(language_files_processed)}")
+        SendNotification(NotificationType.Debug, f"🔧 INSTALL: - BNK files processed: {len(bnk_files_processed)}")
+        SendNotification(NotificationType.Debug, f"🔧 INSTALL: - WEM files processed: {len(wem_files_processed)}")
+        SendNotification(NotificationType.Debug, f"🔧 INSTALL: - SWF files processed: {total_swfs}")
+
         SendNotification(NotificationType.InstallingModFinished, self.hash)
 
         LOCK.release()
@@ -991,12 +1309,31 @@ class ModClass(ModCache):
         # Check for language.bin files modified by this mod
         has_language_bin = False
         has_bnk_files = False
-        for elId, fileName in self.files.items():
-            if fileName.startswith("language.") and fileName.endswith(".bin"):
-                has_language_bin = True
-            elif fileName.endswith(".bnk"):
+        has_wem_files = False
+        
+        # Also check if mod_changes has entries for this mod (in case files aren't in self.files)
+        # This handles cases where BNK/WEM files were installed but not properly tracked in self.files
+        if hasattr(bnk_handler, 'mod_changes') and self.hash in bnk_handler.mod_changes:
+            mod_bnk_changes = bnk_handler.mod_changes[self.hash]
+            if mod_bnk_changes:
                 has_bnk_files = True
-            if has_language_bin and has_bnk_files:
+                has_wem_files = True  # WEM changes are tracked in the same structure
+                SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: Found BNK/WEM changes in mod_changes for mod: {self.hash}")
+        
+        # Check self.files for file-based detection
+        for elId, fileName in self.files.items():
+            # Use the same detection logic as in install process
+            is_language_file = (
+                ("language." in fileName and fileName.endswith(".bin")) or 
+                fileName.endswith("_language.txt")
+            )
+            if is_language_file:
+                has_language_bin = True
+            elif fileName.endswith(".bnk") or (isinstance(fileName, str) and ".bnk" in fileName.lower()):
+                has_bnk_files = True
+            elif fileName.endswith(".wem") or (isinstance(fileName, str) and ".wem" in fileName.lower()):
+                has_wem_files = True
+            if has_language_bin and has_bnk_files and has_wem_files:
                 break
 
         # Regular file uninstallation
@@ -1004,6 +1341,8 @@ class ModClass(ModCache):
 
         # Handle language.bin files uninstallation
         if has_language_bin:
+            SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: *** LANGUAGE FILE UNINSTALL DETECTED ***")
+            SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: Uninstalling language changes for mod: {self.hash}")
             from .langbin import lang_bin_handler
             # Use the tracked changes to revert only this mod's changes
             lang_bin_handler.uninstall_mod_language_changes(self.hash)
@@ -1016,23 +1355,103 @@ class ModClass(ModCache):
                 
         # Handle .bnk files uninstallation
         if has_bnk_files:
+            SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: *** BNK FILE UNINSTALL DETECTED ***")
+            SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: Uninstalling BNK changes for mod: {self.hash}")
             # Use the tracked changes to revert only this mod's changes
-            bnk_handler.uninstall_mod_changes(self.hash)
+            try:
+                uninstall_result = bnk_handler.uninstall_mod_changes(self.hash)
+                if uninstall_result:
+                    SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: BNK uninstall completed successfully")
+                else:
+                    SendNotification(NotificationType.Debug, f"⚠️ UNINSTALL: BNK uninstall returned False - changes may not have been found")
+            except Exception as e:
+                SendNotification(NotificationType.Error, f"Error uninstalling BNK changes: {str(e)}")
+                with open(os.path.join(log_dir, "mod_uninstallation.txt"), "a", encoding="utf-8") as log_file:
+                    log_file.write(f"Error uninstalling BNK changes: {str(e)}\n")
             
             # If this is the last mod, restore all original .bnk files
             if remaining_mods == 0:
                 with open(os.path.join(log_dir, "mod_uninstallation.txt"), "a", encoding="utf-8") as log_file:
                     log_file.write("No mods remaining, forcing restore of all original BNK files\n")
-                bnk_handler.restore_all_original_files()
+                try:
+                    bnk_handler.restore_all_original_files()
+                except Exception as e:
+                    SendNotification(NotificationType.Error, f"Error restoring original BNK files: {str(e)}")
+
+        # Handle .wem files uninstallation
+        # Note: WEM files use the same uninstall_mod_changes function as BNK files
+        # since they're both tracked in the same mod_changes structure
+        if has_wem_files and not has_bnk_files:  # Only call if BNK wasn't already handled
+            SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: *** WEM FILE UNINSTALL DETECTED ***")
+            SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: Uninstalling WEM changes for mod: {self.hash}")
+            # Use the tracked changes to revert only this mod's changes
+            try:
+                uninstall_result = bnk_handler.uninstall_mod_changes(self.hash)
+                if uninstall_result:
+                    SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: WEM uninstall completed successfully")
+                else:
+                    SendNotification(NotificationType.Debug, f"⚠️ UNINSTALL: WEM uninstall returned False - changes may not have been found")
+            except Exception as e:
+                SendNotification(NotificationType.Error, f"Error uninstalling WEM changes: {str(e)}")
+                with open(os.path.join(log_dir, "mod_uninstallation.txt"), "a", encoding="utf-8") as log_file:
+                    log_file.write(f"Error uninstalling WEM changes: {str(e)}\n")
 
         for swfName in self.swfs:
             gameFile = GetGameFileClass(swfName)
-            gameFile.open()
+            try:
+                gameFile.open()
+            except Exception as e:
+                # Handle corrupted SWF file errors
+                error_str = str(e)
+                if "SwfOpenException" in error_str or "SWF header is too short" in error_str or "corrupted" in error_str.lower() or "Invalid SWF file" in error_str:
+                    error_msg = (
+                        f"Failed to uninstall mod '{self.name}': SWF file '{swfName}' is corrupted.\n\n"
+                        f"{error_str}\n\n"
+                        "This usually happens when the game file was corrupted during a previous operation.\n\n"
+                        "Possible solutions:\n"
+                        "1. Verify game files through Steam/Epic Games to restore the original file\n"
+                        "2. Restore the file from a backup if available\n"
+                        "3. Reinstall the game if the file is a core game file\n"
+                        "Note: The mod will still be removed from the mod list, but the file may need manual restoration."
+                    )
+                    SendNotification(NotificationType.Error, error_msg)
+                    # Continue with uninstall even if file is corrupted - at least remove from mod list
+                    continue
+                else:
+                    # Re-raise other exceptions
+                    raise
 
             gameFile.uninstallMod(self.hash)
 
-            gameFile.save()
+            try:
+                gameFile.save()
+            except Exception as e:
+                # Check if it's an OutOfMemoryError
+                error_str = str(e)
+                if "OutOfMemoryError" in error_str or "java.lang.OutOfMemoryError" in error_str:
+                    gameFile.close()  # Make sure to close the file even on error
+                    error_msg = (
+                        f"Java ran out of memory while uninstalling mod '{self.name}'.\n\n"
+                        "This can happen with large mods or when processing multiple mods.\n\n"
+                        "Possible solutions:\n"
+                        "1. Close other applications to free up RAM\n"
+                        "2. Uninstall mods one at a time instead of multiple at once\n"
+                        "3. Restart the mod loader to free up Java memory\n"
+                        "4. If the problem persists, try deleting the bhloader cache folder and restarting"
+                    )
+                    SendNotification(NotificationType.Error, error_msg)
+                    raise Exception(f"OutOfMemoryError uninstalling mod '{self.name}': Java heap space exhausted. " + error_msg) from e
+                else:
+                    # Re-raise other exceptions as-is
+                    raise
             gameFile.close()
+
+        # Send debug summary
+        SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: Uninstall Summary:")
+        SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: - Language files processed: {has_language_bin}")
+        SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: - BNK files processed: {has_bnk_files}")
+        SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: - WEM files processed: {has_wem_files}")
+        SendNotification(NotificationType.Debug, f"🔧 UNINSTALL: - SWF files processed: {len(self.swfs)}")
 
         SendNotification(NotificationType.UninstallingModFinished, self.hash)
 
@@ -1120,9 +1539,24 @@ class ModClass(ModCache):
         SendNotification(NotificationType.DecompilingModFinished, self.hash)
 
     def delete(self):
-        self.removeCache()
+        """Delete the mod file and cache. Handles cases where files may already be manually removed."""
+        try:
+            self.removeCache()
+        except Exception as e:
+            # Cache removal failed, but continue with file deletion
+            print(f"Warning: Error removing cache during mod deletion: {e}")
+        
+        # Safely remove mod file if it exists
         if self.modPath:
-            os.remove(self.modPath)
+            if os.path.exists(self.modPath):
+                try:
+                    os.remove(self.modPath)
+                except (OSError, FileNotFoundError) as e:
+                    # File might already be manually deleted, that's okay
+                    print(f"Warning: Could not remove mod file {self.modPath}: {e}")
+            else:
+                # File doesn't exist (was manually removed), that's fine
+                print(f"Info: Mod file {self.modPath} was already removed, cleaning up mod instance.")
 
     def getTagNameSafe(self, tag_id):
         """Safely get tag name even if the method doesn't exist"""

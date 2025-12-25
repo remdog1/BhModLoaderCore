@@ -1,17 +1,40 @@
 import multiprocessing
+import sys
+import os
 
 from ..commands import Environment
 from ..notifications import Notification
 
 
 def run_server_process(recv_queue: multiprocessing.Queue, send_queue: multiprocessing.Queue):
-    from ..worker.dispatch import Dispatch
-    from ..worker.basedispatch import SetDispatchQueue
+    # Define a log file path.
+    log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'worker_error.log'))
+    # Clear previous log file
+    if os.path.exists(log_path):
+        try:
+            os.remove(log_path)
+        except OSError:
+            pass  # Ignore if we can't remove it, we'll overwrite it anyway
+        
+    log_file = open(log_path, 'w', encoding='utf-8')
+    # Redirect stdout and stderr
+    sys.stdout = log_file
+    sys.stderr = log_file
 
-    server_thread = Dispatch()
-    SetDispatchQueue(recv_queue, send_queue)
-    server_thread.start()
-    server_thread.join()
+    try:
+        from ..worker.dispatch import Dispatch
+        from ..worker.basedispatch import SetDispatchQueue
+
+        server_thread = Dispatch()
+        SetDispatchQueue(recv_queue, send_queue)
+        server_thread.start()
+        server_thread.join()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+    finally:
+        # Ensure the log file is closed so the main process can access it
+        log_file.close()
 
 
 class BaseController:
@@ -35,7 +58,14 @@ class BaseController:
 
         # Wait for the launch of the process
         if self.receive_wait() != 0x1:
-            raise Exception("Error")
+            # The worker crashed. Let's read the log file.
+            log_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'worker_error.log'))
+            if os.path.exists(log_path):
+                with open(log_path, 'r', encoding='utf-8') as f:
+                    error_log = f.read()
+                    # Print to the actual console, not the redirected one
+                    print(f"--- Worker Process Error Log ---\\{error_log}\n--------------------------------", file=sys.__stderr__)
+            raise Exception("Error: Worker process failed to start. See log above.")
 
     @property
     def ready_to_receive(self) -> bool:
@@ -94,6 +124,9 @@ class Controller(BaseController):
 
     def reinstallMod(self, hash):
         self.sendEnv(Environment.ReinstallMod, hash)
+
+    def decompileMod(self, hash):
+        self.sendEnv(Environment.DecompileMod, hash)
 
     def deleteMod(self, hash):
         self.sendEnv(Environment.DeleteMod, hash)

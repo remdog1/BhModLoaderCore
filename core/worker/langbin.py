@@ -106,6 +106,11 @@ class LangFile:
     def FromTextFile(self, filename: str) -> None:
         with codecs.open(filename, "r", "utf-8") as fd:
             data = fd.read()
+            
+            # Convert colon format to equals format for compatibility
+            # This handles files that use "key: value" instead of "key=value"
+            data = re.sub(r'^([^=\s:]+)\s*:\s*(.*?)(?=\n[^=\s:]|\n*$)', r'\1=\2', data, flags=re.MULTILINE | re.DOTALL)
+            
             # Improved regex to capture more language key patterns
             # This handles both underscore patterns and other common patterns
             regex = re.compile(r"^([^=\s]+)\s*=\s*(.*?)(?=\n[^=\s]|\n*$)", re.MULTILINE | re.DOTALL)
@@ -177,23 +182,36 @@ class LangBinHandler:
                 shutil.copy2(file_path, backup_file_path)
 
     def _get_target_file(self, original_filename: str) -> Optional[str]:
-        if original_filename and original_filename in self.language_original_paths:
-            return original_filename
-        if original_filename == "language.bin":
-            for potential_file in sorted(self.language_original_paths.keys()):
-                if potential_file.startswith("language.") and potential_file.endswith(".bin"):
-                    return potential_file
+        # Extract just the filename from the path (handle cases like "languages/language.1.bin")
+        if original_filename:
+            # Get just the filename part (everything after the last slash)
+            filename_only = original_filename.split('/')[-1] if '/' in original_filename else original_filename
+            filename_only = filename_only.split('\\')[-1] if '\\' in filename_only else filename_only
+            
+            # Check for exact match with filename only
+            if filename_only in self.language_original_paths:
+                return filename_only
+            
+            # Handle .txt files by converting them to .bin and looking for the corresponding .bin file
+            if filename_only.endswith('.txt'):
+                bin_filename = filename_only.replace('.txt', '.bin')
+                if bin_filename in self.language_original_paths:
+                    return bin_filename
+            
+            # Handle generic language.bin
+            if filename_only == "language.bin":
+                for potential_file in sorted(self.language_original_paths.keys()):
+                    if potential_file.startswith("language.") and potential_file.endswith(".bin"):
+                        return potential_file
+        
         return None
 
     def apply_mod_language_changes(self, mod_lang_file_path: str, mod_hash: str, original_filename: str = None) -> bool:
-        SendNotification(NotificationType.Debug, f"apply_mod_language_changes called with: mod_hash={mod_hash}, file={original_filename}")
         try:
             target_file_name = self._get_target_file(original_filename)
             if not target_file_name:
                 SendNotification(NotificationType.Error, f"Could not determine target language file for: {original_filename}")
                 return False
-
-            SendNotification(NotificationType.Debug, f"Target language file: {target_file_name}")
             
             # Check if this is a .txt file or .bin file
             if original_filename and original_filename.endswith('.txt'):
@@ -206,22 +224,15 @@ class LangBinHandler:
                 
                 # Load from text file
                 mod_lang_file.FromTextFile(mod_lang_file_path)
-                SendNotification(NotificationType.Debug, f"Loaded {len(mod_lang_file.entries)} entries from .txt file")
             else:
                 # Handle .bin file normally
                 mod_lang_file = LangFile(mod_lang_file_path)
-                SendNotification(NotificationType.Debug, f"Loaded {len(mod_lang_file.entries)} entries from .bin file")
             
             if mod_hash not in self.mod_language_changes:
                 self.mod_language_changes[mod_hash] = {}
             
             mod_changes = {entry.key.string: entry.value.string for entry in mod_lang_file.entries}
             self.mod_language_changes[mod_hash][target_file_name] = mod_changes
-            SendNotification(NotificationType.Debug, f"Saved {len(mod_changes)} changes for mod {mod_hash}")
-            
-            # Log the actual changes being applied for debugging
-            for key, value in list(mod_changes.items())[:5]:  # Show first 5 changes
-                SendNotification(NotificationType.Debug, f"Language change: {key} = {value}")
             
             self._rebuild_language_files()
             self._save_mod_changes()
@@ -251,43 +262,34 @@ class LangBinHandler:
             return False
 
     def _rebuild_language_files(self):
-        SendNotification(NotificationType.Debug, "Rebuilding language files...")
         # 1. Aggregate all changes from all tracked mods.
         aggregated_changes = {}
         sorted_mod_hashes = sorted(self.mod_language_changes.keys())
-        SendNotification(NotificationType.Debug, f"Mod install order: {sorted_mod_hashes}")
+        
         for mod_hash in sorted_mod_hashes:
             for file_name, key_values in self.mod_language_changes[mod_hash].items():
                 if file_name not in aggregated_changes:
                     aggregated_changes[file_name] = {}
                 aggregated_changes[file_name].update(key_values)
-                SendNotification(NotificationType.Debug, f"Added {len(key_values)} changes from mod {mod_hash} to {file_name}")
 
         # 2. Restore all original files to ensure a clean slate.
         self.restore_all_original_files()
-        SendNotification(NotificationType.Debug, "Restored all original language files.")
 
         # 3. Apply the aggregated changes to the restored files.
         for file_name, key_values in aggregated_changes.items():
             target_game_file_path = self.language_original_paths.get(file_name)
             if target_game_file_path:
-                SendNotification(NotificationType.Debug, f"Applying {len(key_values)} changes to {file_name}")
                 try:
                     game_lang_file = LangFile(target_game_file_path)
-                    original_count = len(game_lang_file.entries)
                     
                     for key, value in key_values.items():
                         game_lang_file[key] = value
-                        SendNotification(NotificationType.Debug, f"Applied: {key} = {value}")
                     
-                    # Save the modified file
                     game_lang_file.Save(target_game_file_path)
-                    SendNotification(NotificationType.Debug, f"Saved {file_name} with {len(game_lang_file.entries)} total entries (was {original_count})")
                 except Exception as e:
                     SendNotification(NotificationType.Error, f"Error rebuilding {file_name}: {str(e)}")
                     import traceback
                     SendNotification(NotificationType.Debug, f"Rebuild error traceback: {traceback.format_exc()}")
-        SendNotification(NotificationType.Debug, "Finished rebuilding language files.")
 
     def restore_all_original_files(self):
         for lang_file, original_path in self.language_original_paths.items():

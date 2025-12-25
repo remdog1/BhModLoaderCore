@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import time
+import ctypes
 import winreg as reg
 from pathlib import Path
 
@@ -31,6 +32,159 @@ def get_app_path():
         return os.path.dirname(sys.executable)
     else:
         return os.path.dirname(os.path.abspath(__file__))
+
+def get_current_exe_path():
+    """Get the current executable path."""
+    if getattr(sys, 'frozen', False):
+        return sys.executable
+    else:
+        # For development, return the main.py path
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'run.py'))
+
+
+def register_as_latest():
+    """
+    Register the current instance as the latest mod loader version.
+    This stores the executable path in HKEY_CURRENT_USER (no admin required).
+    Always updates, even if another version was previously registered.
+    """
+    try:
+        exe_path = get_current_exe_path()
+        registry_key_path = r"Software\BrawlhallaModLoader"
+        current_time = time.time()
+        
+        # Store in HKEY_CURRENT_USER (no admin required)
+        with reg.CreateKey(reg.HKEY_CURRENT_USER, registry_key_path) as key:
+            reg.SetValueEx(key, "LatestExecutable", 0, reg.REG_SZ, exe_path)
+            reg.SetValueEx(key, "LastUpdated", 0, reg.REG_SZ, str(current_time))
+        
+        return exe_path
+    except Exception as e:
+        print(f"Error registering as latest: {e}")
+        return None
+
+def get_latest_exe_path():
+    """
+    Get the path to the latest registered mod loader executable.
+    Returns the stored path, or current exe if not found.
+    """
+    try:
+        registry_key_path = r"Software\BrawlhallaModLoader"
+        with reg.OpenKey(reg.HKEY_CURRENT_USER, registry_key_path) as key:
+            latest_path, _ = reg.QueryValueEx(key, "LatestExecutable")
+            if os.path.exists(latest_path):
+                return latest_path
+    except (FileNotFoundError, OSError):
+        pass
+    
+    # Fallback to current executable
+    return get_current_exe_path()
+
+def update_protocol_handlers():
+    """
+    Update protocol handlers to point to the latest registered mod loader.
+    This tries to update without admin, but may require admin for HKEY_CLASSES_ROOT.
+    AGGRESSIVELY clears old associations first.
+    """
+    try:
+        latest_exe = get_latest_exe_path()
+        if not latest_exe or not os.path.exists(latest_exe):
+            print("Warning: Latest executable path not found, using current executable")
+            latest_exe = get_current_exe_path()
+        
+        exe_dir = os.path.dirname(latest_exe)
+        
+        # Try to find icon
+        icon_paths = [
+            os.path.join(exe_dir, "file_icon.ico"),
+            os.path.join(exe_dir, "ui", "ui_sources", "resources", "icons", "App.ico"),
+            latest_exe  # Use exe for icon if no .ico found
+        ]
+        
+        icon_path = latest_exe
+        for path in icon_paths:
+            if os.path.exists(path):
+                icon_path = path
+                break
+        
+        print(f"Updating protocol handlers to: {latest_exe}")
+        
+        # Try to update HKEY_CLASSES_ROOT (requires admin, but we'll try)
+        try:
+            # FIRST: Clear old associations aggressively
+            print("Clearing old associations...")
+            clear_existing_associations()
+            
+            # Update bmod:// protocol
+            print("Updating bmod:// protocol...")
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, r"bmod") as key:
+                reg.SetValue(key, None, reg.REG_SZ, "URL:Brawlhalla Mod")
+                reg.SetValueEx(key, "URL Protocol", 0, reg.REG_SZ, "")
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, r"bmod\shell\open\command") as key:
+                command = f'"{latest_exe}" "%1"'
+                reg.SetValue(key, None, reg.REG_SZ, command)
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, r"bmod\DefaultIcon") as key:
+                reg.SetValue(key, None, reg.REG_SZ, f'"{icon_path}",0')
+            
+            # Update GameBanana protocol
+            print("Updating gamebanana-brawlhalla protocol...")
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, r"gamebanana-brawlhalla") as key:
+                reg.SetValue(key, None, reg.REG_SZ, "GameBanana Brawlhalla Mod")
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, r"gamebanana-brawlhalla\shell\open\command") as key:
+                command = f'"{latest_exe}" "%1"'
+                reg.SetValue(key, None, reg.REG_SZ, command)
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, r"gamebanana-brawlhalla\DefaultIcon") as key:
+                reg.SetValue(key, None, reg.REG_SZ, f'"{icon_path}",0')
+            
+            # Update .bmod file association - use standard program ID method
+            print("Updating .bmod file association...")
+            prog_id = "BrawlhallaModLoader.bmod"
+            
+            # Set .bmod extension to point to program ID
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, ".bmod") as key:
+                reg.SetValue(key, None, reg.REG_SZ, prog_id)
+            
+            # Create/update program ID
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, prog_id) as key:
+                reg.SetValue(key, None, reg.REG_SZ, "Brawlhalla Mod File")
+            
+            # Set icon for program ID
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, f"{prog_id}\\DefaultIcon") as icon_key:
+                reg.SetValue(icon_key, None, reg.REG_SZ, f'"{icon_path}",0')
+            
+            # Set command for program ID
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, f"{prog_id}\\shell\\open\\command") as command_key:
+                command = f'"{latest_exe}" "%1"'
+                reg.SetValue(command_key, None, reg.REG_SZ, command)
+            
+            # Also set icon directly on .bmod extension (for compatibility)
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, ".bmod\\DefaultIcon") as icon_key:
+                reg.SetValue(icon_key, None, reg.REG_SZ, f'"{icon_path}",0')
+            
+            # Also set command directly on .bmod extension (for compatibility)
+            with reg.CreateKey(reg.HKEY_CLASSES_ROOT, ".bmod\\shell\\open\\command") as command_key:
+                command = f'"{latest_exe}" "%1"'
+                reg.SetValue(command_key, None, reg.REG_SZ, command)
+            
+            print(f"✓ Protocol handlers updated successfully!")
+            print(f"  Executable: {latest_exe}")
+            print(f"  Icon: {icon_path}")
+            return True
+        except PermissionError:
+            # Admin required
+            print("⚠ Admin privileges required to update protocol handlers.")
+            print("  Please run the mod loader as Administrator to update file associations.")
+            return False
+        except Exception as e:
+            print(f"Error updating protocol handlers: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    except Exception as e:
+        print(f"Error updating protocol handlers: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def find_latest_installation():
     """Find the latest Brawlhalla Mod Loader installation."""
@@ -63,15 +217,21 @@ def register_associations():
         return
 
     try:
-        # Try to find the latest installation first
-        latest_installation = find_latest_installation()
-        if latest_installation:
-            app_path = latest_installation.parent
-            exe_path = str(latest_installation)
+        # Use the latest registered executable path
+        latest_exe = get_latest_exe_path()
+        if latest_exe and os.path.exists(latest_exe):
+            exe_path = latest_exe
+            app_path = os.path.dirname(exe_path)
         else:
-            app_path = get_app_path()
-            exe_name = "Brawlhalla Mod Loader 2025 Beta.exe"
-            exe_path = os.path.join(app_path, exe_name)
+            # Fallback to finding installation
+            latest_installation = find_latest_installation()
+            if latest_installation:
+                app_path = latest_installation.parent
+                exe_path = str(latest_installation)
+            else:
+                app_path = get_app_path()
+                exe_name = "Brawlhalla Mod Loader 2025 Beta.exe"
+                exe_path = os.path.join(app_path, exe_name)
         
         # Multiple icon path fallbacks for robustness
         icon_paths = [
@@ -298,6 +458,20 @@ def register_shell_integration(exe_path, icon_path):
         with reg.CreateKey(reg.HKEY_CLASSES_ROOT, url_prog_id) as key:
             reg.SetValue(key, None, reg.REG_SZ, "URL:Brawlhalla Mod")
             reg.SetValueEx(key, "URL Protocol", 0, reg.REG_SZ, "")
+            
+            # Set the icon
+            with reg.CreateKey(key, "DefaultIcon") as icon_key:
+                reg.SetValue(icon_key, None, reg.REG_SZ, f'"{icon_path}",0')
+
+            # Set the open command
+            with reg.CreateKey(key, r"shell\open\command") as command_key:
+                command = f'"{exe_path}" "%1"'
+                reg.SetValue(command_key, None, reg.REG_SZ, command)
+
+        # Register GameBanana URL handling
+        gamebanana_prog_id = "gamebanana-brawlhalla"
+        with reg.CreateKey(reg.HKEY_CLASSES_ROOT, gamebanana_prog_id) as key:
+            reg.SetValue(key, None, reg.REG_SZ, "GameBanana Brawlhalla Mod")
             
             # Set the icon
             with reg.CreateKey(key, "DefaultIcon") as icon_key:

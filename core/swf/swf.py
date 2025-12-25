@@ -319,13 +319,53 @@ class Swf:
 
     def open(self):
         if self._swf is None:
-            fileStream = FileInputStream(self.swfPath)
-            self._swf = SWF(BufferedInputStream(fileStream), True)
-            fileStream.close()
+            # Check if file exists and has valid size before opening
+            if not os.path.exists(self.swfPath):
+                raise FileNotFoundError(f"SWF file not found: {self.swfPath}")
+            
+            # Check file size - SWF files should be at least 8 bytes (minimum header size)
+            file_size = os.path.getsize(self.swfPath)
+            if file_size < 8:
+                error_msg = (
+                    f"SWF file is too small or corrupted: {self.swfPath}\n"
+                    f"File size: {file_size} bytes (minimum expected: 8 bytes)\n\n"
+                    "This usually means the file was corrupted during a previous operation.\n\n"
+                    "Possible solutions:\n"
+                    "1. Verify game files through Steam/Epic Games\n"
+                    "2. Restore the file from a backup\n"
+                    "3. Reinstall the game if the file is a core game file"
+                )
+                raise Exception(error_msg)
+            
+            try:
+                fileStream = FileInputStream(self.swfPath)
+                self._swf = SWF(BufferedInputStream(fileStream), True)
+                fileStream.close()
 
-            self._javaSwfs[self._swf] = self
+                self._javaSwfs[self._swf] = self
 
-            self.load()
+                self.load()
+            except Exception as e:
+                # Check if it's a SwfOpenException
+                error_str = str(e)
+                if "SwfOpenException" in error_str or "SWF header is too short" in error_str or "Invalid SWF file" in error_str:
+                    error_msg = (
+                        f"SWF file is corrupted or invalid: {os.path.basename(self.swfPath)}\n\n"
+                        f"Error: {error_str}\n\n"
+                        "This usually happens when:\n"
+                        "1. The file was corrupted during a previous mod installation\n"
+                        "2. The file is incomplete or was interrupted during writing\n"
+                        "3. The file is not a valid SWF file\n\n"
+                        "Possible solutions:\n"
+                        "1. Verify game files through Steam/Epic Games to restore the original file\n"
+                        "2. If this is a modded file, try uninstalling all mods and reinstalling them\n"
+                        "3. Restore the file from a backup if available\n"
+                        "4. Reinstall the game if the file is a core game file"
+                    )
+                    raise Exception(error_msg) from e
+                else:
+                    # Re-raise other exceptions as-is
+                    raise
 
     def load(self):
         if self._swf is not None:
@@ -355,13 +395,34 @@ class Swf:
 
     def save(self):
         if self._swf is not None:
-            if self.symbolClass is not None:
-                self.symbolClass.save()
-            if self.metaData is not None:
-                self.metaData.save()
-            fileStream = FileOutputStream(self.swfPath)
-            self._swf.saveTo(fileStream)
-            fileStream.close()
+            try:
+                if self.symbolClass is not None:
+                    self.symbolClass.save()
+                if self.metaData is not None:
+                    self.metaData.save()
+                fileStream = FileOutputStream(self.swfPath)
+                self._swf.saveTo(fileStream)
+                fileStream.close()
+            except Exception as e:
+                # Check if it's an OutOfMemoryError
+                error_str = str(e)
+                if "OutOfMemoryError" in error_str or "java.lang.OutOfMemoryError" in error_str:
+                    from ..notifications import NotificationType
+                    from .basedispatch import SendNotification
+                    error_msg = (
+                        "Java ran out of memory while processing this mod.\n\n"
+                        "This can happen with large mods or when processing multiple mods.\n\n"
+                        "Possible solutions:\n"
+                        "1. Close other applications to free up RAM\n"
+                        "2. Install mods one at a time instead of multiple at once\n"
+                        "3. Restart the mod loader to free up Java memory\n"
+                        "4. If the problem persists, try deleting the bhloader cache folder and restarting"
+                    )
+                    SendNotification(NotificationType.Error, error_msg)
+                    raise Exception("OutOfMemoryError: Java heap space exhausted. " + error_msg) from e
+                else:
+                    # Re-raise other exceptions as-is
+                    raise
 
     def close(self):
         if self._swf is not None:
